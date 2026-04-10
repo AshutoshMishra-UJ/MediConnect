@@ -1,53 +1,6 @@
 // models/chat.model.js
 import mongoose from "mongoose";
 
-const messageSchema = new mongoose.Schema({
-  content: {
-    type: String,
-    required: true,
-    trim: true
-  },
-  messageType: {
-    type: String,
-    enum: ['text', 'image', 'file', 'voice'],
-    default: 'text'
-  },
-  fileUrl: {
-    type: String,
-    default: null
-  },
-  timestamp: {
-    type: Date,
-    default: Date.now
-  },
-  readBy: [{
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      refPath: 'readBy.userType'
-    },
-    userType: {
-      type: String,
-      enum: ['Doctor', 'Client']
-    },
-    readAt: {
-      type: Date,
-      default: Date.now
-    }
-  }],
-  sender: {
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      refPath: 'sender.userType',
-      required: true
-    },
-    userType: {
-      type: String,
-      enum: ['Doctor', 'Client'],
-      required: true
-    }
-  }
-});
-
 const chatSchema = new mongoose.Schema({
   participants: [{
     userId: {
@@ -61,10 +14,8 @@ const chatSchema = new mongoose.Schema({
       required: true
     }
   }],
-  messages: [messageSchema],
   lastMessage: {
-    type: Date,
-    default: Date.now
+    type: mongoose.Schema.Types.Mixed
   },
   isActive: {
     type: Boolean,

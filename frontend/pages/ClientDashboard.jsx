@@ -5,6 +5,7 @@ import ClientDashboardNavbar from '../components/ClientDashboardNavbar';
 import ChatBot from '../components/ChatBot';
 import useClientAuthStore from '../store/clientAuthStore';
 import { useTheme } from '../context/ThemeContext';
+import { CalendarDays, Building2, MessageSquare, Stethoscope, Video, Pill, UserCircle2, ClipboardList, Mail, CheckCircle2, Lightbulb, Star } from 'lucide-react';
 
 const ClientDashboard = () => {
   const { isAuthenticated, isCheckingAuth, checkAuth } = useClientAuthStore();
@@ -103,72 +104,72 @@ const ClientDashboard = () => {
     {
       title: "Book Appointment",
       description: "Schedule appointments with healthcare providers",
-      icon: "📅",
+      icon: CalendarDays,
       link: "/bookappointment",
       color: "from-green-500 to-green-600"
     },
     {
       title: "My Appointments",
       description: "View and manage your scheduled appointments",
-      icon: "🏥",
+      icon: Building2,
       link: "/clientappointments",
       color: "from-blue-500 to-blue-600"
     },
     {
       title: "Nearby Clinics",
       description: "Find healthcare facilities near your location",
-      icon: "🏨",
+      icon: Building2,
       link: "/nearby-clinics",
       color: "from-purple-500 to-purple-600"
     },
     {
       title: "Messages",
       description: "Communicate with your healthcare providers",
-      icon: "💬",
+      icon: MessageSquare,
       link: "/chat",
       color: "from-indigo-500 to-indigo-600"
     },
     {
       title: "Find Doctors",
       description: "Search and connect with medical professionals",
-      icon: "👨‍⚕️",
+      icon: Stethoscope,
       link: "/finddoctors",
       color: "from-cyan-500 to-cyan-600"
     },
     {
       title: "Video Call",
       description: "Connect with doctors through video consultations",
-      icon: "📹",
+      icon: Video,
       link: "/video-call",
       color: "from-red-500 to-red-600"
     },
     {
       title: "Search Medicine",
       description: "Find information about medications and prescriptions",
-      icon: "💊",
+      icon: Pill,
       link: "/medicines-search",
       color: "from-orange-500 to-orange-600"
     },
     {
       title: "My Profile",
       description: "Update your personal information and preferences",
-      icon: "👤",
+      icon: UserCircle2,
       link: "/clientprofile",
       color: "from-pink-500 to-pink-600"
     }
   ];
 
   const quickStats = [
-    { label: "Upcoming Appointments", value: "3", icon: "📋" },
-    { label: "Unread Messages", value: "2", icon: "📨" },
-    { label: "Completed Consultations", value: "15", icon: "✅" },
-    { label: "Nearby Clinics", value: "8", icon: "🏨" }
+    { label: "Upcoming Appointments", value: "3", icon: ClipboardList },
+    { label: "Unread Messages", value: "2", icon: Mail },
+    { label: "Completed Consultations", value: "15", icon: CheckCircle2 },
+    { label: "Nearby Clinics", value: "8", icon: Building2 }
   ];
 
   return (
     <div className={`min-h-screen ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'}`}>
       <ClientDashboardNavbar />
-      
+
       {/* Main Content */}
       <div className="pt-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
         {/* Header Section */}
@@ -208,7 +209,9 @@ const ClientDashboard = () => {
                     {stat.value}
                   </p>
                 </div>
-                <div className="text-3xl">{stat.icon}</div>
+                <div className={`p-2 rounded-lg ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-100'}`}>
+                  <stat.icon className="w-6 h-6" />
+                </div>
               </div>
             </motion.div>
           ))}
@@ -233,7 +236,9 @@ const ClientDashboard = () => {
               <Link to={card.link}>
                 <div className={`p-6 rounded-xl shadow-lg transition-all duration-300 ${theme === 'dark' ? 'bg-gray-800 border border-gray-700 hover:border-gray-600' : 'bg-white border border-gray-200 hover:shadow-xl'}`}>
                   <div className="flex items-start justify-between mb-4">
-                    <div className="text-4xl">{card.icon}</div>
+                    <div className={`p-2 rounded-lg ${theme === 'dark' ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-700'}`}>
+                      <card.icon className="w-6 h-6" />
+                    </div>
                     <div className={`w-3 h-3 rounded-full bg-gradient-to-r ${card.color} opacity-60 group-hover:opacity-100 transition-opacity`}></div>
                   </div>
                   <h3 className={`text-xl font-semibold mb-2 ${theme === 'dark' ? 'text-white' : 'text-gray-800'}`}>
@@ -266,14 +271,16 @@ const ClientDashboard = () => {
           </h2>
           <div className="space-y-4">
             {[
-              { action: "Appointment scheduled with Dr. Smith", time: "1 hour ago", icon: "📅" },
-              { action: "Video consultation completed", time: "2 hours ago", icon: "📹" },
-              { action: "New message from Dr. Johnson", time: "4 hours ago", icon: "💬" },
-              { action: "Medicine search: Paracetamol", time: "6 hours ago", icon: "💊" },
-              { action: "Profile information updated", time: "1 day ago", icon: "👤" }
+              { action: "Appointment scheduled with Dr. Smith", time: "1 hour ago", icon: CalendarDays },
+              { action: "Video consultation completed", time: "2 hours ago", icon: Video },
+              { action: "New message from Dr. Johnson", time: "4 hours ago", icon: MessageSquare },
+              { action: "Medicine search: Paracetamol", time: "6 hours ago", icon: Pill },
+              { action: "Profile information updated", time: "1 day ago", icon: UserCircle2 }
             ].map((activity, index) => (
               <div key={index} className="flex items-center space-x-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                <div className="text-2xl">{activity.icon}</div>
+                <div className={`p-2 rounded-lg ${theme === 'dark' ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-700'}`}>
+                  <activity.icon className="w-5 h-5" />
+                </div>
                 <div className="flex-1">
                   <p className={`font-medium ${theme === 'dark' ? 'text-white' : 'text-gray-800'}`}>
                     {activity.action}
@@ -294,20 +301,19 @@ const ClientDashboard = () => {
           transition={{ duration: 0.6, delay: 0.5 }}
           className={`rounded-xl shadow-lg p-6 mb-8 ${theme === 'dark' ? 'bg-gradient-to-r from-green-800 to-blue-800 border border-gray-700' : 'bg-gradient-to-r from-green-50 to-blue-50 border border-gray-200'}`}
         >
-          <h2 className={`text-2xl font-semibold mb-4 ${theme === 'dark' ? 'text-white' : 'text-gray-800'}`}>
-            💡 Health Tip of the Day
+          <h2 className={`text-2xl font-semibold mb-4 flex items-center gap-2 ${theme === 'dark' ? 'text-white' : 'text-gray-800'}`}>
+            <Lightbulb className="w-6 h-6" />
+            Health Tip of the Day
           </h2>
           <p className={`text-lg ${theme === 'dark' ? 'text-gray-200' : 'text-gray-700'}`}>
-            Stay hydrated! Drinking adequate water helps maintain your body temperature, 
+            Stay hydrated! Drinking adequate water helps maintain your body temperature,
             lubricates joints, and aids in nutrient transportation. Aim for 8 glasses of water daily.
           </p>
           <div className="mt-4 flex items-center space-x-2">
             <div className="flex text-yellow-400">
-              <span>⭐</span>
-              <span>⭐</span>
-              <span>⭐</span>
-              <span>⭐</span>
-              <span>⭐</span>
+              {[1, 2, 3, 4, 5].map((item) => (
+                <Star key={item} className="w-4 h-4 fill-current" />
+              ))}
             </div>
             <span className={`text-sm ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>
               Wellness tip from our medical experts

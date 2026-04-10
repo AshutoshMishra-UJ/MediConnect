@@ -14,21 +14,21 @@ const activeCallRooms = new Map(); // roomId => { participants, callData }
 const authenticateSocket = async (socket, token) => {
   try {
     const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
-    
+
     // Try to find in Doctor collection first
     let user = await Doctor.findById(decoded._id).select('name email avatar specialization');
     let userType = 'Doctor';
-    
+
     // If not found in Doctor, try Client
     if (!user) {
       user = await Client.findById(decoded._id).select('name email avatar');
       userType = 'Client';
     }
-    
+
     if (!user) {
       throw new Error('User not found');
     }
-    
+
     return { user, userType };
   } catch (error) {
     throw new Error('Authentication failed');
@@ -42,7 +42,7 @@ const initializeSocket = (io) => {
     try {
       const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.split(' ')[1];
       console.log("[Socket Auth] Token received:", token ? "exists" : "missing");
-      
+
       if (!token) {
         return next(new Error('Authentication token required'));
       }
@@ -61,7 +61,17 @@ const initializeSocket = (io) => {
   io.on('connection', (socket) => {
     const userId = socket.user._id.toString();
     console.log(`[Socket] ${socket.userType} ${socket.user.name} connected: ${socket.id}`);
-    
+
+    const emitToUser = (targetUserId, eventName, payload) => {
+      const targetConnection = connectedUsers.get(targetUserId?.toString());
+      if (!targetConnection?.socketId) {
+        return false;
+      }
+
+      io.to(targetConnection.socketId).emit(eventName, payload);
+      return true;
+    };
+
     // Store user connection with enhanced data
     connectedUsers.set(userId, {
       socketId: socket.id,
@@ -92,7 +102,7 @@ const initializeSocket = (io) => {
     });
 
     // Emit online status to contacts
-    socket.broadcast.emit('userOnline', {
+    socket.broadcast.emit('user:online', {
       userId: socket.user._id,
       userType: socket.userType,
       status: 'online'
@@ -121,24 +131,170 @@ const initializeSocket = (io) => {
       console.log(`[Chat] User ${socket.user.name} left chat: ${chatId}`);
     });
 
-    socket.on('typing', ({ chatId, isTyping }) => {
-      socket.to(chatId).emit('userTyping', {
+    socket.on('typing:start', ({ chatId }) => {
+      socket.to(chatId).emit('typing:start', {
         userId: socket.user._id,
         userName: socket.user.name,
-        userType: socket.userType,
-        isTyping
+        userType: socket.userType
       });
     });
 
+    socket.on('typing:stop', ({ chatId }) => {
+      socket.to(chatId).emit('typing:stop', {
+        userId: socket.user._id,
+        userName: socket.user.name,
+        userType: socket.userType
+      });
+    });
+
+    // ========== VIDEO SIGNALING v2 ==========
+    socket.on('video:call-request', ({ toUserId, callType = 'video' }) => {
+      const targetUserId = toUserId?.toString();
+
+      if (!targetUserId || targetUserId === userId) {
+        socket.emit('video:call-error', { message: 'Invalid target user for call request' });
+        return;
+      }
+
+      const callerConnection = connectedUsers.get(userId);
+      if (callerConnection) {
+        callerConnection.currentCall = {
+          targetUserId,
+          status: 'ringing',
+          startTime: new Date()
+        };
+      }
+
+      const sent = emitToUser(targetUserId, 'video:incoming-call', {
+        fromUserId: userId,
+        fromUserName: socket.user.name,
+        fromUserType: socket.userType,
+        callType,
+        timestamp: new Date()
+      });
+
+      if (!sent) {
+        socket.emit('video:call-unavailable', {
+          toUserId: targetUserId,
+          reason: 'User is offline'
+        });
+
+        if (callerConnection) {
+          callerConnection.currentCall = null;
+        }
+        return;
+      }
+
+      socket.emit('video:outgoing-ringing', {
+        toUserId: targetUserId,
+        callType
+      });
+    });
+
+    socket.on('video:call-accept', ({ toUserId }) => {
+      const targetUserId = toUserId?.toString();
+      if (!targetUserId) return;
+
+      const accepterConnection = connectedUsers.get(userId);
+      if (accepterConnection) {
+        accepterConnection.currentCall = {
+          targetUserId,
+          status: 'connected',
+          startTime: new Date()
+        };
+      }
+
+      const targetConnection = connectedUsers.get(targetUserId);
+      if (targetConnection?.currentCall) {
+        targetConnection.currentCall.status = 'connected';
+      }
+
+      emitToUser(targetUserId, 'video:call-accepted', {
+        fromUserId: userId,
+        fromUserName: socket.user.name,
+        fromUserType: socket.userType
+      });
+    });
+
+    socket.on('video:call-reject', ({ toUserId, reason = 'Call declined' }) => {
+      const targetUserId = toUserId?.toString();
+      if (!targetUserId) return;
+
+      emitToUser(targetUserId, 'video:call-rejected', {
+        fromUserId: userId,
+        fromUserName: socket.user.name,
+        fromUserType: socket.userType,
+        reason
+      });
+
+      const userConnection = connectedUsers.get(userId);
+      if (userConnection) userConnection.currentCall = null;
+
+      const targetConnection = connectedUsers.get(targetUserId);
+      if (targetConnection) targetConnection.currentCall = null;
+    });
+
+    socket.on('video:offer', ({ toUserId, sdp }) => {
+      const targetUserId = toUserId?.toString();
+      if (!targetUserId || !sdp) return;
+
+      emitToUser(targetUserId, 'video:offer', {
+        fromUserId: userId,
+        fromUserName: socket.user.name,
+        fromUserType: socket.userType,
+        sdp
+      });
+    });
+
+    socket.on('video:answer', ({ toUserId, sdp }) => {
+      const targetUserId = toUserId?.toString();
+      if (!targetUserId || !sdp) return;
+
+      emitToUser(targetUserId, 'video:answer', {
+        fromUserId: userId,
+        fromUserName: socket.user.name,
+        fromUserType: socket.userType,
+        sdp
+      });
+    });
+
+    socket.on('video:ice-candidate', ({ toUserId, candidate }) => {
+      const targetUserId = toUserId?.toString();
+      if (!targetUserId || !candidate) return;
+
+      emitToUser(targetUserId, 'video:ice-candidate', {
+        fromUserId: userId,
+        fromUserName: socket.user.name,
+        candidate
+      });
+    });
+
+    socket.on('video:end', ({ toUserId, reason = 'Call ended' }) => {
+      const targetUserId = toUserId?.toString();
+      if (!targetUserId) return;
+
+      emitToUser(targetUserId, 'video:ended', {
+        fromUserId: userId,
+        fromUserName: socket.user.name,
+        reason
+      });
+
+      const userConnection = connectedUsers.get(userId);
+      if (userConnection) userConnection.currentCall = null;
+
+      const targetConnection = connectedUsers.get(targetUserId);
+      if (targetConnection) targetConnection.currentCall = null;
+    });
+
     // ========== VIDEO CALL HANDLERS ==========
-    
+
     // Handle incoming call initiation
     socket.on('call-offer', async (data) => {
       console.log(`[Call] Offer received from ${userId} to ${data.targetUserId}`);
-      console.log(`[Call] Offer data:`, { 
-        hasOffer: !!data.offer, 
+      console.log(`[Call] Offer data:`, {
+        hasOffer: !!data.offer,
         callType: data.callType,
-        targetUserId: data.targetUserId 
+        targetUserId: data.targetUserId
       });
 
       const targetUserId = data.targetUserId?.toString();
@@ -164,7 +320,7 @@ const initializeSocket = (io) => {
         });
 
         console.log(`[Call] Offer forwarded to ${data.targetUserId}`);
-        
+
         // Update caller's connection status
         const callerConnection = connectedUsers.get(userId);
         if (callerConnection) {
@@ -176,9 +332,9 @@ const initializeSocket = (io) => {
         }
       } else {
         console.warn(`[Call] Target user ${data.targetUserId} not found or offline`);
-        socket.emit('call-failed', { 
+        socket.emit('call-failed', {
           reason: 'User not available',
-          targetUserId: data.targetUserId 
+          targetUserId: data.targetUserId
         });
       }
     });
@@ -200,7 +356,7 @@ const initializeSocket = (io) => {
         });
 
         console.log(`[Call] Answer forwarded to ${data.targetUserId}`);
-        
+
         // Update both users' connection status
         const answererConnection = connectedUsers.get(userId);
         if (answererConnection) {
@@ -210,15 +366,15 @@ const initializeSocket = (io) => {
             startTime: new Date()
           };
         }
-        
+
         if (targetConnection.currentCall) {
           targetConnection.currentCall.status = 'connected';
         }
       } else {
         console.warn(`[Call] Target user ${data.targetUserId} not found for answer`);
-        socket.emit('call-failed', { 
+        socket.emit('call-failed', {
           reason: 'User not available',
-          targetUserId: data.targetUserId 
+          targetUserId: data.targetUserId
         });
       }
     });
@@ -246,7 +402,7 @@ const initializeSocket = (io) => {
     // Handle call rejection
     socket.on('call-rejected', (data) => {
       console.log(`[Call] Call rejected by ${userId}`);
-      
+
       const targetUserId = data.targetUserId?.toString();
       const targetConnection = connectedUsers.get(targetUserId);
 
@@ -256,7 +412,7 @@ const initializeSocket = (io) => {
           fromUserName: socket.user.name,
           reason: data.reason || 'Call declined'
         });
-        
+
         // Clear call status
         if (targetConnection.currentCall) {
           targetConnection.currentCall = null;
@@ -273,9 +429,9 @@ const initializeSocket = (io) => {
     // Handle call end
     socket.on('call-ended', (data) => {
       console.log(`[Call] Call ended by ${userId}`);
-      
-      const targetUserId = data.targetUserId?.toString() || 
-                          connectedUsers.get(userId)?.currentCall?.targetUserId;
+
+      const targetUserId = data.targetUserId?.toString() ||
+        connectedUsers.get(userId)?.currentCall?.targetUserId;
 
       if (targetUserId) {
         const targetConnection = connectedUsers.get(targetUserId);
@@ -285,7 +441,7 @@ const initializeSocket = (io) => {
             fromUserName: socket.user.name,
             reason: data.reason || 'Call ended'
           });
-          
+
           // Clear target's call status
           if (targetConnection.currentCall) {
             targetConnection.currentCall = null;
@@ -306,12 +462,12 @@ const initializeSocket = (io) => {
         const call = await VideoCall.findOne({ roomId });
         if (call && call.participants.some(p => p.userId.toString() === userId)) {
           socket.join(roomId);
-          
+
           // Track room participation
           if (!activeCallRooms.has(roomId)) {
             activeCallRooms.set(roomId, { participants: [], callData: call });
           }
-          
+
           const room = activeCallRooms.get(roomId);
           if (!room.participants.includes(userId)) {
             room.participants.push(userId);
@@ -373,38 +529,31 @@ const initializeSocket = (io) => {
     });
 
     // ========== MESSAGE HANDLERS ==========
-    socket.on('markAsRead', async ({ chatId, messageIds }) => {
+    // Handled via standard chat controller 'sendMessage' using req.io for most broadcasting,
+    // but message:read is acknowledged here if triggered raw over socket.
+
+    socket.on('message:send', (data) => {
+      // NOTE: Clients generally use HTTP for sending to get Cloudinary URLs easily.
+      // We process real-time notifications inside the HTTP controller instead.
+    });
+
+    socket.on('message:read', async ({ chatId, messageIds }) => {
       try {
-        const chat = await Chat.findById(chatId);
-        if (chat && chat.participants.some(p => p.userId.toString() === userId)) {
-          messageIds.forEach(messageId => {
-            const message = chat.messages.id(messageId);
-            if (message && message.sender.userId.toString() !== userId) {
-              const existingRead = message.readBy.find(
-                r => r.userId.toString() === userId
-              );
-              
-              if (!existingRead) {
-                message.readBy.push({
-                  userId: socket.user._id,
-                  userType: socket.userType,
-                  readAt: new Date()
-                });
-              }
-            }
-          });
+        // Find existing chat to ensure authority.
+        const Message = (await import('../models/message.model.js')).default;
 
-          await chat.save();
+        await Message.updateMany(
+          { _id: { $in: messageIds }, receiverId: userId },
+          { $set: { status: 'read', readAt: new Date() } }
+        );
 
-          socket.to(chatId).emit('messagesRead', {
-            chatId,
-            readBy: { userId: socket.user._id, userType: socket.userType },
-            messageIds
-          });
-        }
+        socket.to(chatId).emit('message:read', {
+          chatId,
+          readBy: userId,
+          messageIds
+        });
       } catch (error) {
-        console.error('[Messages] Failed to mark as read:', error);
-        socket.emit('error', { message: 'Failed to mark messages as read' });
+        console.error('[Messages] Failed to map read flags via socket:', error);
       }
     });
 
@@ -417,7 +566,7 @@ const initializeSocket = (io) => {
           userConnection.lastSeen = new Date();
         }
 
-        socket.broadcast.emit('userStatusUpdate', {
+        socket.broadcast.emit('user:status_update', {
           userId: socket.user._id,
           userType: socket.userType,
           status,
@@ -440,26 +589,26 @@ const initializeSocket = (io) => {
           inCall: !!conn.currentCall
         }));
 
-      socket.emit('onlineUsers', onlineUsers);
+      socket.emit('users:online_list', onlineUsers);
     });
 
     // ========== DISCONNECT HANDLER ==========
     socket.on('disconnect', (reason) => {
       console.log(`[Socket] ${socket.userType} ${socket.user.name} disconnected: ${reason}`);
-      
+
       // Handle ongoing call cleanup
       const userConnection = connectedUsers.get(userId);
       if (userConnection && userConnection.currentCall) {
         const targetUserId = userConnection.currentCall.targetUserId;
         const targetConnection = connectedUsers.get(targetUserId);
-        
+
         if (targetConnection && targetConnection.socketId) {
           io.to(targetConnection.socketId).emit('call-ended', {
             fromUserId: userId,
             fromUserName: socket.user.name,
             reason: 'User disconnected'
           });
-          
+
           if (targetConnection.currentCall) {
             targetConnection.currentCall = null;
           }
@@ -476,7 +625,7 @@ const initializeSocket = (io) => {
             userName: socket.user.name,
             reason: 'disconnected'
           });
-          
+
           // Remove empty rooms
           if (room.participants.length === 0) {
             activeCallRooms.delete(roomId);
@@ -495,7 +644,7 @@ const initializeSocket = (io) => {
       userSocketMap.delete(userId);
 
       // Emit offline status
-      socket.broadcast.emit('userOffline', {
+      socket.broadcast.emit('user:offline', {
         userId: socket.user._id,
         userType: socket.userType,
         status: 'offline',
@@ -506,7 +655,7 @@ const initializeSocket = (io) => {
       setTimeout(() => {
         const stillConnected = Array.from(io.sockets.sockets.values())
           .some(s => s.user && s.user._id.toString() === userId);
-        
+
         if (!stillConnected) {
           connectedUsers.delete(userId);
           console.log(`[Cleanup] Removed user connection: ${socket.user.name}`);
@@ -564,10 +713,10 @@ const isUserInCall = (userId) => {
   return user && user.currentCall;
 };
 
-export { 
-  initializeSocket, 
-  getConnectedUsers, 
-  isUserOnline, 
+export {
+  initializeSocket,
+  getConnectedUsers,
+  isUserOnline,
   getUserSocket,
   sendNotificationToUser,
   getActiveCallRooms,

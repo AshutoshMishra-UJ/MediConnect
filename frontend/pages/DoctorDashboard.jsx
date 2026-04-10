@@ -5,6 +5,7 @@ import DoctorDashboardNavbar from '../components/DoctorDahboardNavbar';
 import ChatBot from '../components/ChatBot';
 import useDoctorAuthStore from '../store/doctorAuthStore';
 import { useTheme } from '../context/ThemeContext';
+import { CalendarDays, Building2, MessageSquare, Video, Stethoscope, ClipboardList, Mail, PhoneCall, UserCircle2 } from 'lucide-react';
 
 const DoctorDashboard = () => {
   const { isAuthenticated, isCheckingAuth, checkAuth } = useDoctorAuthStore();
@@ -103,52 +104,52 @@ const DoctorDashboard = () => {
     {
       title: "My Schedule",
       description: "View and manage your daily appointments and availability",
-      icon: "📅",
+      icon: CalendarDays,
       link: "/doctorschedule",
       color: "from-blue-500 to-blue-600"
     },
     {
       title: "Appointments",
       description: "Manage patient appointments and consultations",
-      icon: "🏥",
+      icon: Building2,
       link: "/doctorappointments",
       color: "from-green-500 to-green-600"
     },
     {
       title: "Messages",
       description: "Communicate with patients and colleagues",
-      icon: "💬",
+      icon: MessageSquare,
       link: "/chat",
       color: "from-purple-500 to-purple-600"
     },
-   
+
     {
       title: "Video Call",
       description: "Conduct virtual consultations with patients",
-      icon: "📹",
+      icon: Video,
       link: "/video-call",
       color: "from-red-500 to-red-600"
     },
     {
       title: "My Profile",
       description: "Update your professional information and settings",
-      icon: "👨‍⚕️",
+      icon: Stethoscope,
       link: "/doctorprofile",
       color: "from-indigo-500 to-indigo-600"
     }
   ];
 
   const quickStats = [
-    { label: "Today's Appointments", value: "12", icon: "📋" },
-    { label: "Pending Messages", value: "5", icon: "📨" },
-    { label: "Video Calls", value: "3", icon: "📞" },
-    { label: "New Patients", value: "8", icon: "👤" }
+    { label: "Today's Appointments", value: "12", icon: ClipboardList },
+    { label: "Pending Messages", value: "5", icon: Mail },
+    { label: "Video Calls", value: "3", icon: PhoneCall },
+    { label: "New Patients", value: "8", icon: UserCircle2 }
   ];
 
   return (
     <div className={`min-h-screen ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'}`}>
       <DoctorDashboardNavbar />
-      
+
       {/* Main Content */}
       <div className="pt-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
         {/* Header Section */}
@@ -188,7 +189,9 @@ const DoctorDashboard = () => {
                     {stat.value}
                   </p>
                 </div>
-                <div className="text-3xl">{stat.icon}</div>
+                <div className={`p-2 rounded-lg ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-100'}`}>
+                  <stat.icon className="w-6 h-6" />
+                </div>
               </div>
             </motion.div>
           ))}
@@ -213,7 +216,9 @@ const DoctorDashboard = () => {
               <Link to={card.link}>
                 <div className={`p-6 rounded-xl shadow-lg transition-all duration-300 ${theme === 'dark' ? 'bg-gray-800 border border-gray-700 hover:border-gray-600' : 'bg-white border border-gray-200 hover:shadow-xl'}`}>
                   <div className="flex items-start justify-between mb-4">
-                    <div className="text-4xl">{card.icon}</div>
+                    <div className={`p-2 rounded-lg ${theme === 'dark' ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-700'}`}>
+                      <card.icon className="w-6 h-6" />
+                    </div>
                     <div className={`w-3 h-3 rounded-full bg-gradient-to-r ${card.color} opacity-60 group-hover:opacity-100 transition-opacity`}></div>
                   </div>
                   <h3 className={`text-xl font-semibold mb-2 ${theme === 'dark' ? 'text-white' : 'text-gray-800'}`}>
@@ -246,13 +251,15 @@ const DoctorDashboard = () => {
           </h2>
           <div className="space-y-4">
             {[
-              { action: "New appointment booked", time: "2 hours ago", icon: "📅" },
-              { action: "Message from Patient John Doe", time: "3 hours ago", icon: "💬" },
-              { action: "Video consultation completed", time: "5 hours ago", icon: "📹" },
-              { action: "Profile updated", time: "1 day ago", icon: "👨‍⚕️" }
+              { action: "New appointment booked", time: "2 hours ago", icon: CalendarDays },
+              { action: "Message from Patient John Doe", time: "3 hours ago", icon: MessageSquare },
+              { action: "Video consultation completed", time: "5 hours ago", icon: Video },
+              { action: "Profile updated", time: "1 day ago", icon: UserCircle2 }
             ].map((activity, index) => (
               <div key={index} className="flex items-center space-x-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                <div className="text-2xl">{activity.icon}</div>
+                <div className={`p-2 rounded-lg ${theme === 'dark' ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-700'}`}>
+                  <activity.icon className="w-5 h-5" />
+                </div>
                 <div className="flex-1">
                   <p className={`font-medium ${theme === 'dark' ? 'text-white' : 'text-gray-800'}`}>
                     {activity.action}

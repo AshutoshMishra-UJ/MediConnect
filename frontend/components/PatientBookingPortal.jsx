@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Calendar, 
-  Clock, 
-  DollarSign, 
-  User, 
-  Phone, 
-  Mail, 
-  Stethoscope, 
-  ArrowLeft, 
+import {
+  Calendar,
+  Clock,
+  DollarSign,
+  User,
+  Phone,
+  Mail,
+  Stethoscope,
+  ArrowLeft,
   Search,
   Star,
   Award,
@@ -18,6 +18,8 @@ import {
   CreditCard
 } from 'lucide-react';
 import useClientAuthStore from '../store/clientAuthStore';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 const PatientBookingPortal = () => {
   const [currentView, setCurrentView] = useState('doctors'); // 'doctors' or 'booking'
@@ -56,7 +58,7 @@ const PatientBookingPortal = () => {
   const fetchDoctors = async () => {
     try {
       setLoading(true);
-      const response = await fetch("http://localhost:5000/doctor");
+      const response = await fetch(`${API_BASE_URL}/doctor`);
       const data = await response.json();
 
       if (!response.ok) {
@@ -76,14 +78,14 @@ const PatientBookingPortal = () => {
   const fetchDoctorSchedule = async (doctorId, date) => {
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:5000/schedule?doctorId=${doctorId}&date=${date}`, {
+      const response = await fetch(`${API_BASE_URL}/schedule?doctorId=${doctorId}&date=${date}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('clientAccessToken')}`
         }
       });
 
       const data = await response.json();
-      
+
       if (data.success) {
         return data.schedule;
       } else {
@@ -101,7 +103,7 @@ const PatientBookingPortal = () => {
   const requestSlot = async (scheduleId, slotIndex, slotFee) => {
     try {
       setBookingLoading(true);
-      const response = await fetch('http://localhost:5000/slots/request', {
+      const response = await fetch(`${API_BASE_URL}/slots/request`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -115,7 +117,7 @@ const PatientBookingPortal = () => {
       });
 
       const data = await response.json();
-      
+
       if (data.success) {
         // Store the slot request for payment
         setPendingSlotRequest({
@@ -125,9 +127,9 @@ const PatientBookingPortal = () => {
           date: selectedDate,
           time: doctorSchedules[0].slots[slotIndex].time
         });
-        
+
         setMessage({ text: 'Slot requested successfully! Please proceed with payment.', type: 'success' });
-        
+
         // Refresh the schedule
         if (selectedDate) {
           const updatedSchedule = await fetchDoctorSchedule(selectedDoctor._id, selectedDate);
@@ -149,21 +151,21 @@ const PatientBookingPortal = () => {
   // Create Razorpay order
   const createRazorpayOrder = async (slotRequestId, amount) => {
     try {
-      const response = await fetch('http://localhost:5000/payments/order', {
+      const response = await fetch(`${API_BASE_URL}/payments/order`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('clientAccessToken')}`
         },
         body: JSON.stringify({
-          slotRequestId,
-          amount
+          slotRequestId
         })
       });
 
       const data = await response.json();
-      
+
       if (data.success) {
-        return data.order;
+        return data;
       } else {
         throw new Error(data.message || 'Failed to create payment order');
       }
@@ -176,16 +178,17 @@ const PatientBookingPortal = () => {
   // Verify payment
   const verifyPayment = async (paymentData) => {
     try {
-      const response = await fetch('http://localhost:5000/payments/verify', {
+      const response = await fetch(`${API_BASE_URL}/payments/verify`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('clientAccessToken')}`
         },
         body: JSON.stringify(paymentData)
       });
 
       const data = await response.json();
-      
+
       if (data.success) {
         return data;
       } else {
@@ -203,7 +206,7 @@ const PatientBookingPortal = () => {
 
     try {
       setPaymentLoading(true);
-      
+
       // Load Razorpay script
       const scriptLoaded = await loadRazorpayScript();
       if (!scriptLoaded) {
@@ -211,14 +214,16 @@ const PatientBookingPortal = () => {
       }
 
       // Create order
-      const order = await createRazorpayOrder(pendingSlotRequest.requestId, pendingSlotRequest.amount);
-      
+      const orderResponse = await createRazorpayOrder(pendingSlotRequest.requestId, pendingSlotRequest.amount);
+      const order = orderResponse.order;
+
       // Get current client info
-      const currentClient = getCurrentClient();
-      
+      const currentClientResult = await getCurrentClient();
+      const currentClient = currentClientResult?.data || null;
+
       // Razorpay options
       const options = {
-        key: import.meta.env.REACT_APP_RAZORPAY_KEY_ID||'rzp_test_ijfoNq8YTvc5iK',
+        key: orderResponse.keyId || import.meta.env.VITE_RAZORPAY_KEY_ID || import.meta.env.REACT_APP_RAZORPAY_KEY_ID,
         amount: order.amount,
         currency: order.currency,
         name: 'Healthcare Booking',
@@ -235,16 +240,16 @@ const PatientBookingPortal = () => {
             };
 
             const verificationResult = await verifyPayment(verificationData);
-            
+
             if (verificationResult.success) {
-              setMessage({ 
-                text: 'Payment successful! Your appointment has been confirmed.', 
-                type: 'success' 
+              setMessage({
+                text: 'Payment successful! Your appointment has been confirmed.',
+                type: 'success'
               });
-              
+
               // Clear pending request
               setPendingSlotRequest(null);
-              
+
               // Refresh schedule
               if (selectedDate) {
                 const updatedSchedule = await fetchDoctorSchedule(selectedDoctor._id, selectedDate);
@@ -255,9 +260,9 @@ const PatientBookingPortal = () => {
             }
           } catch (error) {
             console.error('Payment verification error:', error);
-            setMessage({ 
-              text: 'Payment completed but verification failed. Please contact support.', 
-              type: 'error' 
+            setMessage({
+              text: 'Payment completed but verification failed. Please contact support.',
+              type: 'error'
             });
           }
         },
@@ -277,9 +282,9 @@ const PatientBookingPortal = () => {
         },
         modal: {
           ondismiss: function () {
-            setMessage({ 
-              text: 'Payment cancelled. You can retry payment anytime.', 
-              type: 'error' 
+            setMessage({
+              text: 'Payment cancelled. You can retry payment anytime.',
+              type: 'error'
             });
           }
         }
@@ -290,9 +295,9 @@ const PatientBookingPortal = () => {
 
     } catch (error) {
       console.error('Payment error:', error);
-      setMessage({ 
-        text: error.message || 'Payment failed. Please try again.', 
-        type: 'error' 
+      setMessage({
+        text: error.message || 'Payment failed. Please try again.',
+        type: 'error'
       });
     } finally {
       setPaymentLoading(false);
@@ -355,7 +360,7 @@ const PatientBookingPortal = () => {
             {currentView === 'doctors' ? 'Book Your Appointment' : `Book with Dr. ${selectedDoctor?.name}`}
           </h1>
           <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-            {currentView === 'doctors' 
+            {currentView === 'doctors'
               ? 'Choose from our verified doctors and book your appointment'
               : 'Select a date and time slot for your appointment'
             }
@@ -364,11 +369,10 @@ const PatientBookingPortal = () => {
 
         {/* Message Display */}
         {message.text && (
-          <div className={`mb-6 p-4 rounded-lg flex items-center gap-2 max-w-2xl mx-auto ${
-            message.type === 'success' 
-              ? 'bg-green-100 text-green-800 border border-green-200' 
+          <div className={`mb-6 p-4 rounded-lg flex items-center gap-2 max-w-2xl mx-auto ${message.type === 'success'
+              ? 'bg-green-100 text-green-800 border border-green-200'
               : 'bg-red-100 text-red-800 border border-red-200'
-          }`}>
+            }`}>
             {message.type === 'success' ? <CheckCircle size={20} /> : <XCircle size={20} />}
             {message.text}
           </div>
@@ -387,7 +391,7 @@ const PatientBookingPortal = () => {
                   <p className="text-sm text-gray-600">Complete payment to confirm your appointment</p>
                 </div>
               </div>
-              
+
               <div className="bg-white rounded-xl p-4 mb-4">
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
@@ -396,7 +400,7 @@ const PatientBookingPortal = () => {
                   </div>
                   <div>
                     <span className="text-gray-500">Amount:</span>
-                    <p className="font-semibold text-green-600">${pendingSlotRequest.amount}</p>
+                    <p className="font-semibold text-green-600">INR {pendingSlotRequest.amount}</p>
                   </div>
                   <div>
                     <span className="text-gray-500">Date:</span>
@@ -408,7 +412,7 @@ const PatientBookingPortal = () => {
                   </div>
                 </div>
               </div>
-              
+
               <button
                 onClick={handlePayment}
                 disabled={paymentLoading}
@@ -422,7 +426,7 @@ const PatientBookingPortal = () => {
                 ) : (
                   <span className="flex items-center justify-center gap-2">
                     <CreditCard size={20} />
-                    Pay ${pendingSlotRequest.amount} - Confirm Appointment
+                    Pay INR {pendingSlotRequest.amount} - Confirm Appointment
                   </span>
                 )}
               </button>
@@ -498,7 +502,7 @@ const PatientBookingPortal = () => {
                         <Mail className="w-5 h-5 mr-3 text-gray-400 flex-shrink-0" />
                         <span className="text-sm truncate">{doctor.email}</span>
                       </div>
-                      
+
                       <div className="flex items-center text-gray-600 group-hover:text-gray-800 transition-colors">
                         <Phone className="w-5 h-5 mr-3 text-gray-400 flex-shrink-0" />
                         <span className="text-sm">{doctor.phone}</span>
@@ -515,7 +519,7 @@ const PatientBookingPortal = () => {
                           <div className="text-lg font-bold text-gray-900">{doctor.experience}</div>
                           <div className="text-xs text-gray-500">Years Exp.</div>
                         </div>
-                        
+
                         <div className="text-center">
                           <div className="flex items-center justify-center mb-1">
                             <User className="w-4 h-4 text-purple-500 mr-1" />
@@ -524,7 +528,7 @@ const PatientBookingPortal = () => {
                           <div className="text-xs text-gray-500">{doctor.gender}</div>
                         </div>
                       </div>
-                      
+
                       <div className="pt-3 border-t border-gray-200">
                         <div className="text-xs text-gray-500 mb-1 text-center">Educational Qualification</div>
                         <div className="text-sm font-semibold text-gray-900 text-center bg-white rounded-lg py-2 px-3">
@@ -634,17 +638,16 @@ const PatientBookingPortal = () => {
                       const hasRequest = slot.requestId !== null;
                       const isBooked = slot.isBooked;
                       const isAvailable = !isBooked && !hasRequest;
-                      
+
                       return (
-                        <div 
-                          key={index} 
-                          className={`p-4 rounded-lg border-2 transition-all duration-200 ${
-                            isAvailable 
-                              ? 'border-green-200 bg-green-50 hover:border-green-300 hover:shadow-md' 
+                        <div
+                          key={index}
+                          className={`p-4 rounded-lg border-2 transition-all duration-200 ${isAvailable
+                              ? 'border-green-200 bg-green-50 hover:border-green-300 hover:shadow-md'
                               : isBooked
-                              ? 'border-red-200 bg-red-50'
-                              : 'border-yellow-200 bg-yellow-50'
-                          }`}
+                                ? 'border-red-200 bg-red-50'
+                                : 'border-yellow-200 bg-yellow-50'
+                            }`}
                         >
                           <div className="flex justify-between items-center">
                             <div className="flex items-center gap-6">
@@ -654,21 +657,20 @@ const PatientBookingPortal = () => {
                               </div>
                               <div className="flex items-center gap-2">
                                 <DollarSign size={18} className="text-gray-600" />
-                                <span className="font-semibold text-gray-900 text-lg">${slot.fee}</span>
+                                <span className="font-semibold text-gray-900 text-lg">INR {slot.fee}</span>
                               </div>
                             </div>
-                            
+
                             <div className="flex items-center gap-4">
-                              <div className={`px-4 py-2 rounded-full text-sm font-medium ${
-                                isAvailable 
-                                  ? 'bg-green-100 text-green-800' 
+                              <div className={`px-4 py-2 rounded-full text-sm font-medium ${isAvailable
+                                  ? 'bg-green-100 text-green-800'
                                   : isBooked
-                                  ? 'bg-red-100 text-red-800'
-                                  : 'bg-yellow-100 text-yellow-800'
-                              }`}>
+                                    ? 'bg-red-100 text-red-800'
+                                    : 'bg-yellow-100 text-yellow-800'
+                                }`}>
                                 {isAvailable ? 'Available' : isBooked ? 'Booked' : 'Pending Request'}
                               </div>
-                              
+
                               {isAvailable && (
                                 <button
                                   onClick={() => requestSlot(doctorSchedules[0]._id, index, slot.fee)}
@@ -680,7 +682,7 @@ const PatientBookingPortal = () => {
                               )}
                             </div>
                           </div>
-                          
+
                           {hasRequest && (
                             <div className="mt-3 text-sm text-yellow-700 flex items-center gap-2">
                               <AlertCircle size={16} />
@@ -699,7 +701,7 @@ const PatientBookingPortal = () => {
                     <h4 className="text-lg font-medium mb-2">No Schedule Available</h4>
                     <p>Dr. {selectedDoctor.name} hasn't set up any appointments for this date.</p>
                     <p className="text-sm mt-2">Please try a different date or contact the doctor directly.</p>
-                         </div>
+                  </div>
                 )}
               </div>
             )}

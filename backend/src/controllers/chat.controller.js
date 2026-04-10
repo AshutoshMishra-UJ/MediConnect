@@ -1,5 +1,6 @@
 // controllers/chat.controller.js
 import Chat from "../models/chat.model.js";
+import Message from "../models/message.model.js";
 import Doctor from "../models/doctor.models.js";
 import Client from "../models/client.model.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -10,14 +11,14 @@ import { uploadToCloud } from "../utils/cloudinary.js";
 // Create or get existing chat between doctor and client
 const createOrGetChat = asyncHandler(async (req, res) => {
   const { participantId, participantType } = req.body;
-  
+
   if (!participantId || !participantType) {
     throw new ApiError(400, "Participant ID and type are required");
   }
 
   // Determine current user type
-  const currentUser = req.doctor ? 
-    { userId: req.doctor._id, userType: 'Doctor' } : 
+  const currentUser = req.doctor ?
+    { userId: req.doctor._id, userType: 'Doctor' } :
     { userId: req.client._id, userType: 'Client' };
 
   // Validate participant exists
@@ -54,14 +55,14 @@ const createOrGetChat = asyncHandler(async (req, res) => {
 // Get all chats for current user
 const getUserChats = asyncHandler(async (req, res) => {
   const currentUser = req.doctor ? req.doctor._id : req.client._id;
-  
+
   const chats = await Chat.find({
     'participants.userId': currentUser,
     isActive: true
   })
-  .populate('participants.userId', 'name email avatar specialization')
-  .sort({ lastMessage: -1 })
-  .limit(50);
+    .populate('participants.userId', 'name email avatar specialization')
+    .sort({ lastMessage: -1 })
+    .limit(50);
 
   return res.status(200).json(new ApiResponse(200, chats, "Chats retrieved successfully"));
 });
@@ -69,9 +70,15 @@ const getUserChats = asyncHandler(async (req, res) => {
 // Send message
 const sendMessage = asyncHandler(async (req, res) => {
   const { chatId, content, messageType = 'text' } = req.body;
-  
-  if (!chatId || !content) {
-    throw new ApiError(400, "Chat ID and content are required");
+
+  const trimmedContent = (content || '').trim();
+
+  if (!chatId) {
+    throw new ApiError(400, "Chat ID is required");
+  }
+
+  if (!trimmedContent && !req.file) {
+    throw new ApiError(400, "Message content or file is required");
   }
 
   const chat = await Chat.findById(chatId);
@@ -82,7 +89,7 @@ const sendMessage = asyncHandler(async (req, res) => {
   // Verify user is participant
   const currentUser = req.doctor ? req.doctor._id : req.client._id;
   const isParticipant = chat.participants.some(p => p.userId.toString() === currentUser.toString());
-  
+
   if (!isParticipant) {
     throw new ApiError(403, "You are not a participant in this chat");
   }
@@ -96,30 +103,49 @@ const sendMessage = asyncHandler(async (req, res) => {
     fileUrl = uploadResult.url;
   }
 
-  const newMessage = {
-    content,
+  const senderType = req.doctor ? 'Doctor' : 'Client';
+  const receiverParticipant = chat.participants.find(p => p.userId.toString() !== currentUser.toString());
+  const receiverType = receiverParticipant ? receiverParticipant.userType : (req.doctor ? 'Client' : 'Doctor');
+  const receiverId = receiverParticipant ? receiverParticipant.userId : currentUser;
+
+  const newDoc = await Message.create({
+    chatId,
+    senderId: currentUser,
+    senderType,
+    receiverId,
+    receiverType,
+    message: trimmedContent,
     messageType,
-    fileUrl,
+    fileUrl
+  });
+
+  await newDoc.populate('senderId', 'name avatar');
+
+  const savedMessage = {
+    _id: newDoc._id,
+    chatId: newDoc.chatId,
+    content: newDoc.message,
+    messageType: newDoc.messageType,
+    fileUrl: newDoc.fileUrl,
     sender: {
-      userId: currentUser,
-      userType: req.doctor ? 'Doctor' : 'Client'
-    }
+      userId: newDoc.senderId,
+      userType: newDoc.senderType
+    },
+    status: newDoc.status,
+    readAt: newDoc.readAt,
+    createdAt: newDoc.createdAt,
+    updatedAt: newDoc.updatedAt
   };
 
-  chat.messages.push(newMessage);
-  chat.lastMessage = new Date();
+  chat.lastMessage = savedMessage;
   await chat.save();
 
-  // Populate the new message for response
-  await chat.populate('messages.sender.userId', 'name avatar');
-  const savedMessage = chat.messages[chat.messages.length - 1];
-
-  // Emit socket event for real-time delivery
-  req.io?.to(chatId).emit('newMessage', {
-    chatId,
-    message: savedMessage,
-    sender: req.doctor ? 'Doctor' : 'Client'
-  });
+  // Emit to active chat room and both users' private rooms for reliable delivery.
+  if (req.io) {
+    req.io.to(chatId).emit('message:receive', savedMessage);
+    req.io.to(`user_${currentUser}`).emit('message:receive', savedMessage);
+    req.io.to(`user_${receiverId}`).emit('message:receive', savedMessage);
+  }
 
   return res.status(201).json(new ApiResponse(201, savedMessage, "Message sent successfully"));
 });
@@ -128,7 +154,7 @@ const sendMessage = asyncHandler(async (req, res) => {
 const getChatMessages = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
   const { page = 1, limit = 50 } = req.query;
-  
+
   const chat = await Chat.findById(chatId);
   if (!chat) {
     throw new ApiError(404, "Chat not found");
@@ -137,23 +163,35 @@ const getChatMessages = asyncHandler(async (req, res) => {
   // Verify user is participant
   const currentUser = req.doctor ? req.doctor._id : req.client._id;
   const isParticipant = chat.participants.some(p => p.userId.toString() === currentUser.toString());
-  
+
   if (!isParticipant) {
     throw new ApiError(403, "You are not a participant in this chat");
   }
 
   const skip = (page - 1) * limit;
-  const totalMessages = chat.messages.length;
-  
-  // Get messages with pagination (reverse order for recent first)
-  const messages = chat.messages
-    .slice(Math.max(0, totalMessages - skip - limit), totalMessages - skip)
-    .reverse();
+  const totalMessages = await Message.countDocuments({ chatId });
 
-  await Chat.populate(chat, { 
-    path: 'messages.sender.userId', 
-    select: 'name avatar'
-  });
+  const messageDocs = await Message.find({ chatId })
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
+    .populate('senderId', 'name avatar');
+
+  const messages = messageDocs.map(doc => ({
+    _id: doc._id,
+    chatId: doc.chatId,
+    content: doc.message,
+    messageType: doc.messageType,
+    fileUrl: doc.fileUrl,
+    sender: {
+      userId: doc.senderId,
+      userType: doc.senderType
+    },
+    status: doc.status,
+    readAt: doc.readAt,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt
+  })).reverse();
 
   return res.status(200).json(new ApiResponse(200, {
     messages: messages,
@@ -169,8 +207,8 @@ const getChatMessages = asyncHandler(async (req, res) => {
 // Mark messages as read
 const markMessagesAsRead = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
-  const { messageIds } = req.body;
-  
+  const { messageIds = [] } = req.body;
+
   const chat = await Chat.findById(chatId);
   if (!chat) {
     throw new ApiError(404, "Chat not found");
@@ -180,31 +218,46 @@ const markMessagesAsRead = asyncHandler(async (req, res) => {
   const userType = req.doctor ? 'Doctor' : 'Client';
 
   // Mark specified messages as read
-  messageIds.forEach(messageId => {
-    const message = chat.messages.id(messageId);
-    if (message && message.sender.userId.toString() !== currentUser.toString()) {
-      const existingRead = message.readBy.find(
-        r => r.userId.toString() === currentUser.toString()
-      );
-      
-      if (!existingRead) {
-        message.readBy.push({
-          userId: currentUser,
-          userType: userType,
-          readAt: new Date()
-        });
-      }
+  if (!Array.isArray(messageIds) || messageIds.length === 0) {
+    return res.status(200).json(new ApiResponse(200, {}, "No messages to mark as read"));
+  }
+
+  await Message.updateMany(
+    {
+      _id: { $in: messageIds },
+      chatId,
+      senderId: { $ne: currentUser },
+      receiverId: currentUser
+    },
+    { $set: { status: 'read', readAt: new Date() } }
+  );
+
+  // Emit read receipt to chat room and participant rooms.
+  if (req.io) {
+    req.io.to(chatId).emit('message:read', {
+      chatId,
+      readBy: { userId: currentUser, userType },
+      messageIds
+    });
+
+    const otherParticipant = chat.participants.find(
+      (p) => p.userId.toString() !== currentUser.toString()
+    );
+
+    req.io.to(`user_${currentUser}`).emit('message:read', {
+      chatId,
+      readBy: { userId: currentUser, userType },
+      messageIds
+    });
+
+    if (otherParticipant) {
+      req.io.to(`user_${otherParticipant.userId}`).emit('message:read', {
+        chatId,
+        readBy: { userId: currentUser, userType },
+        messageIds
+      });
     }
-  });
-
-  await chat.save();
-
-  // Emit read receipt
-  req.io?.to(chatId).emit('messagesRead', {
-    chatId,
-    readBy: { userId: currentUser, userType },
-    messageIds
-  });
+  }
 
   return res.status(200).json(new ApiResponse(200, {}, "Messages marked as read"));
 });
@@ -212,37 +265,56 @@ const markMessagesAsRead = asyncHandler(async (req, res) => {
 // Delete message
 const deleteMessage = asyncHandler(async (req, res) => {
   const { chatId, messageId } = req.params;
-  
+
   const chat = await Chat.findById(chatId);
   if (!chat) {
     throw new ApiError(404, "Chat not found");
   }
 
-  const message = chat.messages.id(messageId);
+  const message = await Message.findById(messageId);
   if (!message) {
     throw new ApiError(404, "Message not found");
   }
 
   const currentUser = req.doctor ? req.doctor._id : req.client._id;
-  if (message.sender.userId.toString() !== currentUser.toString()) {
+  if (message.senderId.toString() !== currentUser.toString()) {
     throw new ApiError(403, "You can only delete your own messages");
   }
 
   // Check if message is within 5 minutes of sending
   const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-  if (message.timestamp < fiveMinutesAgo) {
+  if (new Date(message.createdAt) < fiveMinutesAgo) {
     throw new ApiError(400, "Message can only be deleted within 5 minutes of sending");
   }
 
-  message.deleteOne();
-  await chat.save();
+  await message.deleteOne();
 
   // Emit socket event
-  req.io?.to(chatId).emit('messageDeleted', {
-    chatId,
-    messageId,
-    deletedBy: currentUser
-  });
+  if (req.io) {
+    req.io.to(chatId).emit('message:deleted', {
+      chatId,
+      messageId,
+      deletedBy: currentUser
+    });
+
+    const otherParticipant = chat.participants.find(
+      (p) => p.userId.toString() !== currentUser.toString()
+    );
+
+    req.io.to(`user_${currentUser}`).emit('message:deleted', {
+      chatId,
+      messageId,
+      deletedBy: currentUser
+    });
+
+    if (otherParticipant) {
+      req.io.to(`user_${otherParticipant.userId}`).emit('message:deleted', {
+        chatId,
+        messageId,
+        deletedBy: currentUser
+      });
+    }
+  }
 
   return res.status(200).json(new ApiResponse(200, {}, "Message deleted successfully"));
 });

@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MapPin, Hospital, Stethoscope, Pill, Search, Loader, Phone, Globe, Clock, Building2, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
 const MedicalFacilitiesFinder = () => {
   const [userLocation, setUserLocation] = useState(null);
   const [medicalFacilities, setMedicalFacilities] = useState({
@@ -40,7 +42,7 @@ const MedicalFacilitiesFinder = () => {
     loadLeaflet().then(() => {
       if (mapRef.current && !mapInstanceRef.current) {
         mapInstanceRef.current = window.L.map(mapRef.current).setView([26.8467, 80.9462], 13);
-        
+
         window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           attribution: '© OpenStreetMap contributors'
         }).addTo(mapInstanceRef.current);
@@ -58,10 +60,10 @@ const MedicalFacilitiesFinder = () => {
   // Map navigation functions
   const panMap = (direction) => {
     if (!mapInstanceRef.current) return;
-    
+
     const panAmount = 0.01;
     const center = mapInstanceRef.current.getCenter();
-    
+
     switch (direction) {
       case 'up':
         mapInstanceRef.current.panTo([center.lat + panAmount, center.lng]);
@@ -80,7 +82,7 @@ const MedicalFacilitiesFinder = () => {
 
   const zoomMap = (direction) => {
     if (!mapInstanceRef.current) return;
-    
+
     if (direction === 'in') {
       mapInstanceRef.current.zoomIn();
     } else {
@@ -90,7 +92,7 @@ const MedicalFacilitiesFinder = () => {
 
   const resetMapView = () => {
     if (!mapInstanceRef.current) return;
-    
+
     if (userLocation) {
       mapInstanceRef.current.setView([userLocation.lat, userLocation.lng], 15);
     } else {
@@ -116,11 +118,11 @@ const MedicalFacilitiesFinder = () => {
           lng: position.coords.longitude
         };
         setUserLocation(location);
-        
+
         if (mapInstanceRef.current) {
           mapInstanceRef.current.setView([location.lat, location.lng], 15);
         }
-        
+
         // Fetch based on active tab
         if (activeTab === 'all') {
           fetchAllMedicalFacilities(location.lat, location.lng);
@@ -138,9 +140,9 @@ const MedicalFacilitiesFinder = () => {
   // Fetch all medical facilities from API
   const fetchAllMedicalFacilities = async (lat, lng) => {
     try {
-      const response = await fetch(`http://localhost:5000/clinics/nearby-medical?lat=${lat}&lng=${lng}&radius=${radius}`);
+      const response = await fetch(`${API_BASE_URL}/clinics/nearby-medical?lat=${lat}&lng=${lng}&radius=${radius}`);
       const data = await response.json();
-      
+
       if (data.success) {
         setMedicalFacilities(data.medical_facilities);
         updateMapMarkers(data.medical_facilities, { lat, lng });
@@ -172,9 +174,9 @@ const MedicalFacilitiesFinder = () => {
           endpoint = 'nearby-medical';
       }
 
-      const response = await fetch(`http://localhost:5000/clinics/${endpoint}?lat=${lat}&lng=${lng}&radius=${radius}`);
+      const response = await fetch(`${API_BASE_URL}/clinics/${endpoint}?lat=${lat}&lng=${lng}&radius=${radius}`);
       const data = await response.json();
-      
+
       if (data.success) {
         // Reset facilities state
         const resetFacilities = {
@@ -193,7 +195,7 @@ const MedicalFacilitiesFinder = () => {
         if (data.dispensaries) {
           resetFacilities.dispensaries = data.dispensaries.map(f => ({ ...f, type: 'dispensary' }));
         }
-        
+
         // Handle the case where all facilities are returned (nearby-medical endpoint)
         if (data.medical_facilities) {
           setMedicalFacilities(data.medical_facilities);
@@ -229,7 +231,7 @@ const MedicalFacilitiesFinder = () => {
   const handleRadiusChange = (newRadius) => {
     setRadius(newRadius);
     setIsRadiusOpen(false);
-    
+
     // Re-fetch data with new radius if location is available
     if (userLocation) {
       setLoading(true);
@@ -255,19 +257,19 @@ const MedicalFacilitiesFinder = () => {
     markersRef.current.push(userMarker);
 
     const markerConfigs = {
-      hospitals: { color: '#dc2626', icon: '🏥' },
-      clinics: { color: '#2563eb', icon: '🩺' },
-      dispensaries: { color: '#16a34a', icon: '💊' }
+      hospitals: { color: '#dc2626', icon: 'H' },
+      clinics: { color: '#2563eb', icon: 'C' },
+      dispensaries: { color: '#16a34a', icon: 'D' }
     };
 
     Object.entries(facilities).forEach(([category, items]) => {
       const config = markerConfigs[category];
       if (!config) return;
-      
+
       items.forEach(facility => {
         if (facility.lat && facility.lng) {
           const customIcon = window.L.divIcon({
-            html: `<div style="background-color: ${config.color}; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 16px; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">${config.icon}</div>`,
+            html: `<div style="background-color: ${config.color}; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 13px; font-weight: 700; letter-spacing: 0.02em; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">${config.icon}</div>`,
             className: 'custom-marker',
             iconSize: [30, 30],
             iconAnchor: [15, 15]
@@ -286,7 +288,7 @@ const MedicalFacilitiesFinder = () => {
                 ${facility.website ? `<p style="margin: 4px 0;"><a href="${facility.website}" target="_blank">Visit Website</a></p>` : ''}
               </div>
             `);
-          
+
           marker.on('click', () => setSelectedFacility(facility));
           markersRef.current.push(marker);
         }
@@ -362,16 +364,15 @@ const MedicalFacilitiesFinder = () => {
                     <span className="font-medium">{radius} km</span>
                     <ChevronDown className={`w-4 h-4 transition-transform ${isRadiusOpen ? 'rotate-180' : ''}`} />
                   </button>
-                  
+
                   {isRadiusOpen && (
                     <div className="absolute top-full left-0 mt-1 w-32 bg-white border-2 border-gray-300 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
                       {radiusOptions.map((option) => (
                         <button
                           key={option.value}
                           onClick={() => handleRadiusChange(option.value)}
-                          className={`w-full px-4 py-2 text-left hover:bg-blue-50 transition-colors ${
-                            radius === option.value ? 'bg-blue-100 text-blue-700 font-semibold' : 'text-gray-700'
-                          }`}
+                          className={`w-full px-4 py-2 text-left hover:bg-blue-50 transition-colors ${radius === option.value ? 'bg-blue-100 text-blue-700 font-semibold' : 'text-gray-700'
+                            }`}
                         >
                           {option.label}
                         </button>
@@ -407,23 +408,20 @@ const MedicalFacilitiesFinder = () => {
               <button
                 key={key}
                 onClick={() => handleTabChange(key)}
-                className={`px-6 py-3 rounded-xl flex items-center gap-3 transition-all duration-200 transform hover:scale-105 ${
-                  activeTab === key
-                    ? `bg-gradient-to-r ${
-                        color === 'purple' ? 'from-purple-600 to-purple-700' :
-                        color === 'red' ? 'from-red-600 to-red-700' :
+                className={`px-6 py-3 rounded-xl flex items-center gap-3 transition-all duration-200 transform hover:scale-105 ${activeTab === key
+                    ? `bg-gradient-to-r ${color === 'purple' ? 'from-purple-600 to-purple-700' :
+                      color === 'red' ? 'from-red-600 to-red-700' :
                         color === 'blue' ? 'from-blue-600 to-blue-700' :
-                        'from-green-600 to-green-700'
-                      } text-white shadow-lg`
+                          'from-green-600 to-green-700'
+                    } text-white shadow-lg`
                     : 'bg-white text-gray-700 hover:bg-gray-50 border-2 border-gray-200 hover:border-gray-300'
-                }`}
+                  }`}
               >
                 <Icon className="w-5 h-5" />
                 <span className="font-medium">{label}</span>
                 {count > 0 && (
-                  <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                    activeTab === key ? 'bg-white bg-opacity-30' : 'bg-gray-200'
-                  }`}>
+                  <span className={`px-2 py-1 rounded-full text-xs font-bold ${activeTab === key ? 'bg-white bg-opacity-30' : 'bg-gray-200'
+                    }`}>
                     {count}
                   </span>
                 )}
@@ -453,7 +451,7 @@ const MedicalFacilitiesFinder = () => {
         {/* Enhanced Map Container */}
         <div className="flex-1 relative bg-white rounded-2xl shadow-xl overflow-hidden">
           <div ref={mapRef} className="w-full h-full" />
-          
+
           {/* Map Controls */}
           <div className="absolute top-4 right-4 flex flex-col gap-2">
             {/* Zoom Controls */}
@@ -526,9 +524,9 @@ const MedicalFacilitiesFinder = () => {
           <div className="p-6">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold text-gray-800">
-                {activeTab === 'all' ? 'All Medical Facilities' : 
-                 activeTab === 'hospitals' ? 'Hospitals' :
-                 activeTab === 'clinics' ? 'Clinics' : 'Pharmacies'}
+                {activeTab === 'all' ? 'All Medical Facilities' :
+                  activeTab === 'hospitals' ? 'Hospitals' :
+                    activeTab === 'clinics' ? 'Clinics' : 'Pharmacies'}
               </h2>
               {getFilteredFacilities().length > 0 && (
                 <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-semibold">
@@ -551,9 +549,8 @@ const MedicalFacilitiesFinder = () => {
                   {getFilteredFacilities().map((facility, index) => (
                     <div
                       key={`${facility.category}-${facility.id}-${index}`}
-                      className={`p-4 border-2 rounded-xl cursor-pointer transition-all duration-200 hover:shadow-lg transform hover:scale-102 ${getTypeColor(facility.category)} ${
-                        selectedFacility?.id === facility.id ? 'ring-4 ring-blue-300 shadow-lg scale-102' : ''
-                      }`}
+                      className={`p-4 border-2 rounded-xl cursor-pointer transition-all duration-200 hover:shadow-lg transform hover:scale-102 ${getTypeColor(facility.category)} ${selectedFacility?.id === facility.id ? 'ring-4 ring-blue-300 shadow-lg scale-102' : ''
+                        }`}
                       onClick={() => {
                         setSelectedFacility(facility);
                         if (mapInstanceRef.current && facility.lat && facility.lng) {
@@ -571,7 +568,7 @@ const MedicalFacilitiesFinder = () => {
                             {facility.type || facility.category}
                           </p>
                           <p className="text-sm text-gray-700 mb-3 leading-relaxed">{facility.address}</p>
-                          
+
                           <div className="space-y-2">
                             {facility.phone !== 'Phone not available' && (
                               <div className="flex items-center gap-2 text-sm text-gray-600">
@@ -579,27 +576,27 @@ const MedicalFacilitiesFinder = () => {
                                 <span className="font-medium">{facility.phone}</span>
                               </div>
                             )}
-                            
+
                             {facility.opening_hours !== 'Hours not available' && (
                               <div className="flex items-center gap-2 text-sm text-gray-600">
                                 <Clock className="w-4 h-4 text-blue-600" />
                                 <span>{facility.opening_hours}</span>
                               </div>
                             )}
-                            
+
                             {facility.emergency && (
                               <div className="flex items-center gap-2 text-sm text-red-600 font-bold bg-red-50 px-2 py-1 rounded-md">
                                 <div className="w-2 h-2 bg-red-600 rounded-full animate-pulse"></div>
                                 Emergency Services Available
                               </div>
                             )}
-                            
+
                             {facility.website && (
                               <div className="flex items-center gap-2 text-sm">
                                 <Globe className="w-4 h-4 text-blue-600" />
-                                <a 
-                                  href={facility.website} 
-                                  target="_blank" 
+                                <a
+                                  href={facility.website}
+                                  target="_blank"
                                   rel="noopener noreferrer"
                                   className="text-blue-600 hover:text-blue-800 hover:underline font-medium transition-colors"
                                   onClick={(e) => e.stopPropagation()}

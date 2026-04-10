@@ -6,20 +6,20 @@ import '../pages/theme.css'
 const Footer = () => {
   const { theme } = useTheme(); // Using the custom hook to access theme
   const isDarkMode = theme === 'dark';
-  
+
   return (
-    <footer className={`${isDarkMode ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-800'} py-12 transition-colors duration-300`}>
+    <footer className={`${isDarkMode ? 'bg-slate-950 text-white border-t border-slate-800' : 'bg-slate-100 text-slate-800 border-t border-slate-200'} py-14 transition-colors duration-300`}>
       <div className="container mx-auto px-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
           <div>
-            <h3 className="text-xl font-bold mb-4">MediConnect</h3>
+            <h3 className="text-xl font-semibold mb-4 tracking-tight">MediConnect</h3>
             <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
               Connecting patients with healthcare professionals through an intuitive and secure platform.
             </p>
           </div>
-          
+
           <div>
-            <h3 className="text-xl font-bold mb-4">Quick Links</h3>
+            <h3 className="text-xl font-semibold mb-4 tracking-tight">Quick Links</h3>
             <ul className="space-y-2">
               <li><a href="#home" className={`${isDarkMode ? 'text-gray-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>Home</a></li>
               <li><a href="#services" className={`${isDarkMode ? 'text-gray-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>Services</a></li>
@@ -27,9 +27,9 @@ const Footer = () => {
               <li><a href="#contact" className={`${isDarkMode ? 'text-gray-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>Contact</a></li>
             </ul>
           </div>
-          
+
           <div>
-            <h3 className="text-xl font-bold mb-4">Support</h3>
+            <h3 className="text-xl font-semibold mb-4 tracking-tight">Support</h3>
             <ul className="space-y-2">
               <li><a href="#" className={`${isDarkMode ? 'text-gray-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>Help Center</a></li>
               <li><a href="#" className={`${isDarkMode ? 'text-gray-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>Privacy Policy</a></li>
@@ -37,9 +37,9 @@ const Footer = () => {
               <li><a href="#" className={`${isDarkMode ? 'text-gray-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>FAQs</a></li>
             </ul>
           </div>
-          
+
           <div>
-            <h3 className="text-xl font-bold mb-4">Contact Info</h3>
+            <h3 className="text-xl font-semibold mb-4 tracking-tight">Contact Info</h3>
             <ul className={`space-y-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
               <li>123 Healthcare Blvd</li>
               <li>Medical District, MD 12345</li>
@@ -48,8 +48,8 @@ const Footer = () => {
             </ul>
           </div>
         </div>
-        
-        <div className={`border-t ${isDarkMode ? 'border-gray-800' : 'border-gray-300'} mt-8 pt-8 flex flex-col md:flex-row justify-between items-center`}>
+
+        <div className={`border-t ${isDarkMode ? 'border-slate-800' : 'border-slate-300'} mt-10 pt-8 flex flex-col md:flex-row justify-between items-center`}>
           <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'} mb-4 md:mb-0`}>
             &copy; {new Date().getFullYear()} MediConnect. All rights reserved.
           </p>

@@ -1,523 +1,495 @@
-// stores/chatStore.js
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 
-const API_BASE = 'http://localhost:5000'; // Replace with your actual API base URL
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
-const useChatStore = create(devtools((set, get) => ({
-  // State
-  socket: null,
-  chats: [],
-  currentChat: null,
-  messages: [],
-  isLoading: false,
-  error: null,
-  isConnected: false,
-  unreadCount: 0,
-  pagination: {
-    currentPage: 1,
-    totalPages: 1,
-    totalMessages: 0,
-    hasMore: false
-  },
+const getAuthContext = () => {
+    const doctorToken = localStorage.getItem('doctorAccessToken');
+    const clientToken = localStorage.getItem('clientAccessToken');
+    const doctorId = localStorage.getItem('doctorId');
+    const clientId = localStorage.getItem('clientId');
 
-  // Socket connection
-  connectSocket: () => {
-    const { socket, isConnected } = get();
-    if (isConnected && socket) return;
-
-    const token = localStorage.getItem("doctorAccessToken") || localStorage.getItem("clientAccessToken");
-    const userId = localStorage.getItem("doctorId") || localStorage.getItem("clientId");
-    const userType = localStorage.getItem("doctorAccessToken") ? "Doctor" : "Client";
-
-    if (!token || !userId) {
-      console.warn("Missing token or userId for socket auth");
-      return;
+    if (doctorToken && doctorId && !clientToken) {
+        return { token: doctorToken, userId: doctorId, userType: 'Doctor' };
     }
 
-    const newSocket = io(API_BASE, {
-      withCredentials: true,
-      auth: { token, userType, userId },
-      transports: ["websocket"],
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 2000,
-    });
-
-    newSocket.on("connect", () => {
-      console.log("Socket connected:", newSocket.id);
-      set({ isConnected: true, socket: newSocket });
-
-      const { currentChat } = get();
-      if (currentChat) newSocket.emit("joinChat", currentChat._id);
-    });
-
-    newSocket.on("disconnect", () => {
-      console.log("Socket disconnected");
-      set({ isConnected: false, socket: null });
-    });
-
-    newSocket.on("connect_error", (err) => {
-      console.error("Socket connection error:", err.message);
-      set({ error: `Connection error: ${err.message}` });
-    });
-
-    // Handle incoming messages
-    newSocket.on("newMessage", (message) => {
-      console.log("New message received via socket:", message);
-      const { currentChat, messages } = get();
-      
-      // Only add message if it belongs to the current chat
-      if (currentChat && message.chatId === currentChat._id) {
-        const messageExists = messages.some(msg => msg._id === message._id);
-        if (!messageExists) {
-          set({ messages: [...messages, message] });
-        }
-      }
-      
-      // Update chat list with new message
-      get().updateChatWithNewMessage(message);
-    });
-
-    // Handle message status updates
-    newSocket.on("messageDelivered", (data) => {
-      console.log("Message delivered:", data);
-      const { messages } = get();
-      const updatedMessages = messages.map(msg => 
-        msg._id === data.messageId 
-          ? { ...msg, status: 'delivered' }
-          : msg
-      );
-      set({ messages: updatedMessages });
-    });
-
-    newSocket.on("messageRead", (data) => {
-      console.log("Message read:", data);
-      const { messages } = get();
-      const updatedMessages = messages.map(msg => 
-        data.messageIds.includes(msg._id)
-          ? { ...msg, isRead: true }
-          : msg
-      );
-      set({ messages: updatedMessages });
-    });
-
-    // Handle typing indicators
-    newSocket.on("userTyping", (data) => {
-      console.log("User typing:", data);
-      // You can implement typing indicators here
-    });
-
-    newSocket.on("userStoppedTyping", (data) => {
-      console.log("User stopped typing:", data);
-      // You can implement typing indicators here
-    });
-
-    set({ socket: newSocket });
-  },
-
-  disconnectSocket: () => {
-    const { socket } = get();
-    if (socket) {
-      socket.disconnect();
-      set({ socket: null, isConnected: false });
+    if (clientToken && clientId && !doctorToken) {
+        return { token: clientToken, userId: clientId, userType: 'Client' };
     }
-  },
 
-  // Helper function to update chat list with new message
-  updateChatWithNewMessage: (message) => {
-    const { chats } = get();
-    const updatedChats = chats.map(chat => {
-      if (chat._id === message.chatId) {
-        return {
-          ...chat,
-          lastMessage: {
-            content: message.content,
-            createdAt: message.createdAt,
-            sender: message.sender
-          },
-          updatedAt: message.createdAt
-        };
-      }
-      return chat;
-    });
-    
-    // Sort chats by last message time
-    updatedChats.sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
-    set({ chats: updatedChats });
-  },
+    if (doctorToken && doctorId) {
+        return { token: doctorToken, userId: doctorId, userType: 'Doctor' };
+    }
 
-  // Chat operations
-  getChatMessages: async (chatId, page = 1, limit = 50) => {
-    console.log("getChatMessages called for chat:", chatId);
-    set({ isLoading: true, error: null });
+    if (clientToken && clientId) {
+        return { token: clientToken, userId: clientId, userType: 'Client' };
+    }
 
-    try {
-      const doctorToken = localStorage.getItem("doctorAccessToken");
-      const clientToken = localStorage.getItem("clientAccessToken");
-      const token = doctorToken || clientToken;
+    return null;
+};
 
-      if (!token) {
-        console.error("[Chat] ❌ No auth token found.");
-        throw new Error("No auth token found");
-      }
+const authHeaders = () => {
+    const auth = getAuthContext();
+    if (!auth?.token) {
+        throw new Error('No authentication token found');
+    }
 
-      const userType = doctorToken ? "Doctor" : "Client";
+    return {
+        Authorization: `Bearer ${auth.token}`,
+    };
+};
 
-      console.log("[Chat] ✅ Token found");
-      console.log("[Chat] UserType:", userType);
-      console.log("[Chat] Chat ID:", chatId);
-      console.log("[Chat] Fetching page:", page, "Limit:", limit);
+const normalizeMessage = (message) => {
+    if (!message) return null;
 
-      const response = await axios.get(`${API_BASE}/chats/${chatId}/messages`, {
-        params: { page, limit },
-        headers: {
-          Authorization: `Bearer ${token}`,
+    const senderUserId = message.sender?.userId?._id || message.sender?.userId || message.senderId;
+
+    return {
+        _id: message._id,
+        chatId: String(message.chatId),
+        content: message.content ?? message.message ?? '',
+        messageType: message.messageType || 'text',
+        fileUrl: message.fileUrl || null,
+        sender: {
+            userId: senderUserId,
+            userType: message.sender?.userType || message.senderType,
         },
-        withCredentials: true,
-      });
+        status: message.status || 'sent',
+        readAt: message.readAt || null,
+        createdAt: message.createdAt,
+        updatedAt: message.updatedAt,
+    };
+};
 
-      console.log("[Chat] ✅ Messages response received:", response.data);
-
-      const { messages, pagination } = response.data.data;
-
-      if (page === 1) {
-        set({ messages, pagination });
-      } else {
-        const { messages: currentMessages } = get();
-        set({
-          messages: [...messages, ...currentMessages],
-          pagination,
-        });
-      }
-
-      return { messages, pagination };
-    } catch (error) {
-      console.error("[Chat] ❌ Error fetching messages:", error);
-      const errorMessage =
-        error.response?.data?.message || "Failed to fetch messages";
-      set({ error: errorMessage });
-      throw error;
-    } finally {
-      set({ isLoading: false });
-    }
-  },
-
-  fetchUserChats: async () => {
-    set({ isLoading: true, error: null });
-    try {
-      const doctorToken = localStorage.getItem("doctorAccessToken");
-      const clientToken = localStorage.getItem("clientAccessToken");
-      const token = doctorToken || clientToken;
-
-      if (!token) {
-        throw new Error("No auth token found");
-      }
-
-      const response = await axios.get(`${API_BASE}/chats/user-chats`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
+const useChatStore = create(
+    devtools((set, get) => ({
+        socket: null,
+        chats: [],
+        currentChat: null,
+        messages: [],
+        isLoading: false,
+        error: null,
+        isConnected: false,
+        unreadCount: 0,
+        onlineUsers: [],
+        typingUsers: {},
+        pagination: {
+            currentPage: 1,
+            totalPages: 1,
+            totalMessages: 0,
+            hasMore: false,
         },
-        withCredentials: true,
-      });
-      
-      const chats = response.data.data;
-      
-      // Sort chats by last message time (most recent first)
-      const sortedChats = chats.sort((a, b) => {
-        const aTime = new Date(a.lastMessage?.createdAt || a.updatedAt || a.createdAt);
-        const bTime = new Date(b.lastMessage?.createdAt || b.updatedAt || b.createdAt);
-        return bTime - aTime;
-      });
-      
-      set({ chats: sortedChats });
 
-      const unreadCount = chats.reduce((count, chat) => {
-        return count + (chat.unreadCount || 0);
-      }, 0);
-      set({ unreadCount });
+        connectSocket: () => {
+            const { socket, isConnected } = get();
+            if (socket && isConnected) return;
 
-      return sortedChats;
-    } catch (error) {
-      console.error("Error fetching user chats:", error);
-      const errorMessage = error.response?.data?.message || "Failed to fetch chats";
-      set({ error: errorMessage });
-      throw error;
-    } finally {
-      set({ isLoading: false });
-    }
-  },
+            const auth = getAuthContext();
+            if (!auth?.token || !auth?.userId || !auth?.userType) {
+                set({ error: 'Missing authentication context for chat socket' });
+                return;
+            }
 
-  sendMessage: async (chatId, content, messageType = 'text', file = null) => {
-    if (!content.trim() && !file) {
-      console.warn("Cannot send empty message");
-      return;
-    }
+            if (socket) {
+                socket.disconnect();
+            }
 
-    set({ isLoading: true, error: null });
-    try {
-      const doctorToken = localStorage.getItem("doctorAccessToken");
-      const clientToken = localStorage.getItem("clientAccessToken");
-      const token = doctorToken || clientToken;
+            const newSocket = io(API_BASE, {
+                auth: {
+                    token: auth.token,
+                    userId: auth.userId,
+                    userType: auth.userType,
+                },
+                transports: ['websocket', 'polling'],
+                withCredentials: true,
+            });
 
-      if (!token) {
-        throw new Error("No auth token found");
-      }
+            newSocket.on('connect', () => {
+                set({ isConnected: true, socket: newSocket, error: null });
+                const { currentChat } = get();
+                if (currentChat?._id) {
+                    newSocket.emit('joinChat', currentChat._id);
+                }
+            });
 
-      const formData = new FormData();
-      formData.append('chatId', chatId);
-      formData.append('content', content);
-      formData.append('messageType', messageType);
+            newSocket.on('disconnect', () => {
+                set({ isConnected: false });
+            });
 
-      if (file) {
-        formData.append('file', file);
-      }
+            newSocket.on('connect_error', (err) => {
+                set({ error: `Socket error: ${err.message}` });
+            });
 
-      const response = await axios.post(`${API_BASE}/chats/send-message`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-          Authorization: `Bearer ${token}`
+            newSocket.on('message:receive', (rawMessage) => {
+                const message = normalizeMessage(rawMessage);
+                if (!message) return;
+
+                const { messages, currentChat } = get();
+                const isActiveChat = currentChat?._id && String(currentChat._id) === String(message.chatId);
+
+                if (isActiveChat) {
+                    const exists = messages.some((m) => String(m._id) === String(message._id));
+                    if (!exists) {
+                        set({ messages: [...messages, message] });
+                    }
+                }
+
+                get().updateChatWithNewMessage(message);
+            });
+
+            newSocket.on('message:read', ({ messageIds = [] }) => {
+                if (!Array.isArray(messageIds) || messageIds.length === 0) return;
+
+                set((state) => ({
+                    messages: state.messages.map((m) =>
+                        messageIds.includes(m._id) ? { ...m, status: 'read', readAt: m.readAt || new Date().toISOString() } : m
+                    ),
+                }));
+            });
+
+            newSocket.on('message:deleted', ({ messageId }) => {
+                if (!messageId) return;
+                set((state) => ({
+                    messages: state.messages.filter((m) => String(m._id) !== String(messageId)),
+                }));
+            });
+
+            newSocket.on('typing:start', ({ userId }) => {
+                set((state) => ({
+                    typingUsers: { ...state.typingUsers, [userId]: true },
+                }));
+            });
+
+            newSocket.on('typing:stop', ({ userId }) => {
+                set((state) => ({
+                    typingUsers: { ...state.typingUsers, [userId]: false },
+                }));
+            });
+
+            newSocket.on('users:online_list', (users) => {
+                set({ onlineUsers: Array.isArray(users) ? users : [] });
+            });
+
+            newSocket.on('user:online', (user) => {
+                set((state) => {
+                    const exists = state.onlineUsers.some((u) => String(u.userId) === String(user.userId));
+                    if (exists) return state;
+                    return { onlineUsers: [...state.onlineUsers, user] };
+                });
+            });
+
+            newSocket.on('user:offline', ({ userId }) => {
+                set((state) => ({
+                    onlineUsers: state.onlineUsers.filter((u) => String(u.userId) !== String(userId)),
+                }));
+            });
+
+            newSocket.emit('getOnlineUsers');
+            set({ socket: newSocket });
         },
-        withCredentials: true,
-      });
 
-      const message = response.data.data;
-      console.log("Message sent successfully:", message);
-
-      // Add message to current messages if this is the active chat
-      const { currentChat, messages, socket } = get();
-      if (currentChat && currentChat._id === chatId) {
-        const messageExists = messages.some(msg => msg._id === message._id);
-        if (!messageExists) {
-          set({ messages: [...messages, message] });
-        }
-      }
-
-      // Emit socket event for real-time updates
-      if (socket && socket.connected) {
-        socket.emit('messageSent', {
-          chatId,
-          message
-        });
-      }
-
-      // Update chat list
-      get().updateChatWithNewMessage(message);
-
-      return message;
-    } catch (error) {
-      console.error("Error sending message:", error);
-      const errorMessage = error.response?.data?.message || 'Failed to send message';
-      set({ error: errorMessage });
-      throw error;
-    } finally {
-      set({ isLoading: false });
-    }
-  },
-
-  createOrGetChat: async (participantId, participantType) => {
-    set({ isLoading: true, error: null });
-    try {
-      const token = localStorage.getItem("doctorAccessToken") || localStorage.getItem("clientAccessToken");
-      if (!token) throw new Error("No auth token");
-
-      console.log("Creating/getting chat with:", { participantId, participantType });
-
-      const response = await axios.post(
-        `${API_BASE}/chats/create-or-get`,
-        { participantId, participantType },
-        {
-          headers: { Authorization: `Bearer ${token}` },
-          withCredentials: true,
-        }
-      );
-
-      const chat = response.data.data;
-      console.log("Chat created/retrieved:", chat);
-      
-      set({ currentChat: chat });
-
-      // Join the chat room via socket
-      const { socket } = get();
-      if (socket && socket.connected) {
-        socket.emit('joinChat', chat._id);
-      }
-
-      // Fetch messages for this chat
-      await get().getChatMessages(chat._id);
-
-      return chat;
-    } catch (error) {
-      console.error("Error creating/getting chat:", error);
-      const errorMessage = error.response?.data?.message || "Failed to create/get chat";
-      set({ error: errorMessage });
-      throw error;
-    } finally {
-      set({ isLoading: false });
-    }
-  },
-
-  markMessagesAsRead: async (chatId, messageIds) => {
-    try {
-      const doctorToken = localStorage.getItem("doctorAccessToken");
-      const clientToken = localStorage.getItem("clientAccessToken");
-      const token = doctorToken || clientToken;
-
-      if (!token) {
-        throw new Error("No auth token found");
-      }
-
-      await axios.patch(`${API_BASE}/chats/${chatId}/mark-read`, {
-        messageIds
-      }, {
-        headers: {
-          Authorization: `Bearer ${token}`
+        disconnectSocket: () => {
+            const { socket } = get();
+            if (socket) {
+                socket.disconnect();
+            }
+            set({ socket: null, isConnected: false, typingUsers: {} });
         },
-        withCredentials: true,
-      });
 
-      // Update local state
-      const { messages, socket } = get();
-      const updatedMessages = messages.map(msg => {
-        if (messageIds.includes(msg._id)) {
-          return { ...msg, isRead: true };
-        }
-        return msg;
-      });
-      set({ messages: updatedMessages });
+        fetchUserChats: async () => {
+            set({ isLoading: true, error: null });
+            try {
+                const response = await axios.get(`${API_BASE}/chats/user-chats`, {
+                    headers: authHeaders(),
+                    withCredentials: true,
+                });
 
-      // Emit socket event
-      if (socket && socket.connected) {
-        socket.emit('messagesRead', {
-          chatId,
-          messageIds
-        });
-      }
+                const chats = response.data?.data || [];
+                const sortedChats = [...chats].sort((a, b) => {
+                    const aTime = new Date(a?.lastMessage?.createdAt || a?.updatedAt || a?.createdAt || 0).getTime();
+                    const bTime = new Date(b?.lastMessage?.createdAt || b?.updatedAt || b?.createdAt || 0).getTime();
+                    return bTime - aTime;
+                });
 
-    } catch (error) {
-      console.error('Failed to mark messages as read:', error);
-    }
-  },
+                const unreadCount = sortedChats.reduce((acc, chat) => acc + (chat.unreadCount || 0), 0);
 
-  deleteMessage: async (chatId, messageId) => {
-    set({ isLoading: true, error: null });
-    try {
-      const doctorToken = localStorage.getItem("doctorAccessToken");
-      const clientToken = localStorage.getItem("clientAccessToken");
-      const token = doctorToken || clientToken;
-
-      if (!token) {
-        throw new Error("No auth token found");
-      }
-
-      await axios.delete(`${API_BASE}/chats/${chatId}/messages/${messageId}`, {
-        headers: {
-          Authorization: `Bearer ${token}`
+                set({ chats: sortedChats, unreadCount });
+                return sortedChats;
+            } catch (error) {
+                const message = error.response?.data?.message || 'Failed to load chats';
+                set({ error: message });
+                throw error;
+            } finally {
+                set({ isLoading: false });
+            }
         },
-        withCredentials: true,
-      });
 
-      // Remove message from local state
-      const { messages, socket } = get();
-      const filteredMessages = messages.filter(msg => msg._id !== messageId);
-      set({ messages: filteredMessages });
+        createOrGetChat: async (participantId, participantType) => {
+            set({ isLoading: true, error: null });
+            try {
+                const response = await axios.post(
+                    `${API_BASE}/chats/create-or-get`,
+                    { participantId, participantType },
+                    {
+                        headers: authHeaders(),
+                        withCredentials: true,
+                    }
+                );
 
-      // Emit socket event
-      if (socket && socket.connected) {
-        socket.emit('messageDeleted', {
-          chatId,
-          messageId
-        });
-      }
+                const chat = response.data?.data;
+                if (!chat?._id) {
+                    throw new Error('Invalid chat response');
+                }
 
-    } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Failed to delete message';
-      set({ error: errorMessage });
-      throw error;
-    } finally {
-      set({ isLoading: false });
-    }
-  },
+                const { socket } = get();
+                if (socket?.connected) {
+                    socket.emit('joinChat', chat._id);
+                }
 
-  setCurrentChat: (chat) => {
-    const { socket, currentChat } = get();
-    
-    // Leave previous chat room
-    if (socket && socket.connected && currentChat) {
-      socket.emit('leaveChat', currentChat._id);
-    }
-    
-    set({ currentChat: chat, messages: [], error: null });
-    
-    // Join the new chat room
-    if (socket && socket.connected && chat) {
-      socket.emit('joinChat', chat._id);
-    }
-  },
+                set({ currentChat: chat, messages: [] });
+                await get().getChatMessages(chat._id, 1, 50);
+                await get().fetchUserChats();
 
-  clearCurrentChat: () => {
-    const { socket, currentChat } = get();
-    if (socket && socket.connected && currentChat) {
-      socket.emit('leaveChat', currentChat._id);
-    }
-    set({ currentChat: null, messages: [] });
-  },
+                return chat;
+            } catch (error) {
+                const message = error.response?.data?.message || 'Failed to create chat';
+                set({ error: message });
+                throw error;
+            } finally {
+                set({ isLoading: false });
+            }
+        },
 
-  clearError: () => set({ error: null }),
+        getChatMessages: async (chatId, page = 1, limit = 50) => {
+            set({ isLoading: true, error: null });
+            try {
+                const response = await axios.get(`${API_BASE}/chats/${chatId}/messages`, {
+                    params: { page, limit },
+                    headers: authHeaders(),
+                    withCredentials: true,
+                });
 
-  // Auto-clear errors after 5 seconds
-  setError: (error) => {
-    set({ error });
-    setTimeout(() => {
-      const { error: currentError } = get();
-      if (currentError === error) {
-        set({ error: null });
-      }
-    }, 5000);
-  },
+                const payload = response.data?.data || {};
+                const receivedMessages = (payload.messages || []).map(normalizeMessage).filter(Boolean);
+                const pagination = payload.pagination || {
+                    currentPage: 1,
+                    totalPages: 1,
+                    totalMessages: receivedMessages.length,
+                    hasMore: false,
+                };
 
-  // Typing indicators
-  startTyping: (chatId) => {
-    const { socket } = get();
-    if (socket && socket.connected) {
-      socket.emit('startTyping', { chatId });
-    }
-  },
+                if (page === 1) {
+                    set({ messages: receivedMessages, pagination });
+                } else {
+                    set((state) => ({
+                        messages: [...receivedMessages, ...state.messages],
+                        pagination,
+                    }));
+                }
 
-  stopTyping: (chatId) => {
-    const { socket } = get();
-    if (socket && socket.connected) {
-      socket.emit('stopTyping', { chatId });
-    }
-  },
+                const { socket, currentChat } = get();
+                if (socket?.connected && currentChat?._id === chatId) {
+                    socket.emit('joinChat', chatId);
+                }
 
-  // Utility functions
-  getChatParticipant: (chat, currentUserId) => {
-    if (!chat?.participants || !currentUserId) return null;
-    return chat.participants.find(p => p?.userId?._id !== currentUserId);
-  },
+                return { messages: receivedMessages, pagination };
+            } catch (error) {
+                const message = error.response?.data?.message || 'Failed to fetch messages';
+                set({ error: message });
+                throw error;
+            } finally {
+                set({ isLoading: false });
+            }
+        },
 
-  isMessageFromCurrentUser: (message, currentUserId) => {
-    if (!message?.sender || !currentUserId) return false;
-    return message.sender.userId?._id === currentUserId || message.sender?.userId === currentUserId;
-  },
+        sendMessage: async (chatId, content, messageType = 'text', file = null) => {
+            const trimmed = (content || '').trim();
+            if (!trimmed && !file) {
+                return null;
+            }
 
-  // Get formatted chat list for display
-  getFormattedChats: (currentUserId) => {
-    const { chats } = get();
-    return chats.map(chat => {
-      const otherParticipant = get().getChatParticipant(chat, currentUserId);
-      return {
-        ...chat,
-        displayName: otherParticipant?.userId?.name || 'Unknown User',
-        displayAvatar: otherParticipant?.userId?.avatar || otherParticipant?.userId?.profileImage,
-        lastMessagePreview: chat.lastMessage?.content || 'No messages yet',
-        lastMessageTime: chat.lastMessage?.createdAt || chat.createdAt
-      };
-    });
-  }
-})));
+            set({ isLoading: true, error: null });
+            try {
+                const formData = new FormData();
+                formData.append('chatId', chatId);
+                formData.append('content', trimmed);
+                formData.append('messageType', file ? (file.type?.startsWith('image/') ? 'image' : 'file') : messageType);
+
+                if (file) {
+                    formData.append('file', file);
+                }
+
+                const response = await axios.post(`${API_BASE}/chats/send-message`, formData, {
+                    headers: {
+                        ...authHeaders(),
+                    },
+                    withCredentials: true,
+                });
+
+                const message = normalizeMessage(response.data?.data);
+                if (!message) {
+                    throw new Error('Invalid message response');
+                }
+
+                set((state) => {
+                    const exists = state.messages.some((m) => String(m._id) === String(message._id));
+                    return {
+                        messages: exists ? state.messages : [...state.messages, message],
+                    };
+                });
+
+                get().updateChatWithNewMessage(message);
+                return message;
+            } catch (error) {
+                const message = error.response?.data?.message || 'Failed to send message';
+                set({ error: message });
+                throw error;
+            } finally {
+                set({ isLoading: false });
+            }
+        },
+
+        markMessagesAsRead: async (chatId, messageIds) => {
+            if (!Array.isArray(messageIds) || messageIds.length === 0) return;
+
+            try {
+                await axios.patch(
+                    `${API_BASE}/chats/${chatId}/mark-read`,
+                    { messageIds },
+                    {
+                        headers: authHeaders(),
+                        withCredentials: true,
+                    }
+                );
+
+                set((state) => ({
+                    messages: state.messages.map((m) =>
+                        messageIds.includes(m._id) ? { ...m, status: 'read', readAt: m.readAt || new Date().toISOString() } : m
+                    ),
+                }));
+            } catch (error) {
+                const message = error.response?.data?.message || 'Failed to mark messages as read';
+                set({ error: message });
+            }
+        },
+
+        deleteMessage: async (chatId, messageId) => {
+            set({ isLoading: true, error: null });
+            try {
+                await axios.delete(`${API_BASE}/chats/${chatId}/messages/${messageId}`, {
+                    headers: authHeaders(),
+                    withCredentials: true,
+                });
+
+                set((state) => ({
+                    messages: state.messages.filter((m) => String(m._id) !== String(messageId)),
+                }));
+            } catch (error) {
+                const message = error.response?.data?.message || 'Failed to delete message';
+                set({ error: message });
+                throw error;
+            } finally {
+                set({ isLoading: false });
+            }
+        },
+
+        setCurrentChat: (chat) => {
+            const { socket, currentChat } = get();
+
+            if (socket?.connected && currentChat?._id) {
+                socket.emit('leaveChat', currentChat._id);
+            }
+
+            set({ currentChat: chat, messages: [], pagination: { currentPage: 1, totalPages: 1, totalMessages: 0, hasMore: false } });
+
+            if (socket?.connected && chat?._id) {
+                socket.emit('joinChat', chat._id);
+            }
+        },
+
+        clearCurrentChat: () => {
+            const { socket, currentChat } = get();
+            if (socket?.connected && currentChat?._id) {
+                socket.emit('leaveChat', currentChat._id);
+            }
+            set({ currentChat: null, messages: [] });
+        },
+
+        updateChatWithNewMessage: (message) => {
+            if (!message?.chatId) return;
+
+            set((state) => {
+                const updated = state.chats.map((chat) => {
+                    if (String(chat._id) !== String(message.chatId)) return chat;
+
+                    return {
+                        ...chat,
+                        lastMessage: {
+                            content: message.content,
+                            createdAt: message.createdAt,
+                            sender: message.sender,
+                        },
+                        updatedAt: message.createdAt,
+                    };
+                });
+
+                updated.sort((a, b) => {
+                    const aTime = new Date(a?.lastMessage?.createdAt || a?.updatedAt || a?.createdAt || 0).getTime();
+                    const bTime = new Date(b?.lastMessage?.createdAt || b?.updatedAt || b?.createdAt || 0).getTime();
+                    return bTime - aTime;
+                });
+
+                return { chats: updated };
+            });
+        },
+
+        startTyping: (chatId) => {
+            const { socket } = get();
+            if (socket?.connected && chatId) {
+                socket.emit('typing:start', { chatId });
+            }
+        },
+
+        stopTyping: (chatId) => {
+            const { socket } = get();
+            if (socket?.connected && chatId) {
+                socket.emit('typing:stop', { chatId });
+            }
+        },
+
+        getChatParticipant: (chat, currentUserId) => {
+            if (!chat?.participants || !currentUserId) return null;
+            return chat.participants.find((p) => {
+                const participantId = p?.userId?._id || p?.userId;
+                return String(participantId) !== String(currentUserId);
+            });
+        },
+
+        isMessageFromCurrentUser: (message, currentUserId) => {
+            if (!message || !currentUserId) return false;
+            const senderId = message.sender?.userId?._id || message.sender?.userId || message.senderId;
+            return String(senderId) === String(currentUserId);
+        },
+
+        getFormattedChats: (currentUserId) => {
+            const { chats } = get();
+            return chats.map((chat) => {
+                const otherParticipant = get().getChatParticipant(chat, currentUserId);
+                return {
+                    ...chat,
+                    displayName: otherParticipant?.userId?.name || 'Unknown User',
+                    displayAvatar: otherParticipant?.userId?.avatar || otherParticipant?.userId?.profileImage || null,
+                    lastMessagePreview: chat?.lastMessage?.content || 'No messages yet',
+                    lastMessageTime: chat?.lastMessage?.createdAt || chat?.updatedAt || chat?.createdAt,
+                };
+            });
+        },
+
+        clearError: () => set({ error: null }),
+        setError: (error) => set({ error }),
+    }))
+);
 
 export default useChatStore;

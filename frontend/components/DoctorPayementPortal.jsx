@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { User, Phone, Mail, Calendar, CreditCard, IndianRupee, Clock, Filter } from 'lucide-react';
 import useDoctorAuthStore from '../store/doctorAuthStore';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
 const DoctorPaymentPortal = () => {
   const [paymentData, setPaymentData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -10,14 +12,18 @@ const DoctorPaymentPortal = () => {
   const { isAuthenticated, currentDoctor, getCurrentDoctor } = useDoctorAuthStore();
 
   useEffect(() => {
-    // Ensure we have current doctor data before fetching payments
     const initializeAndFetchPayments = async () => {
       try {
-        // Get current doctor if not already available
-        if (!currentDoctor) {
-          await getCurrentDoctor();
+        let doctorData = currentDoctor;
+        if (!doctorData?._id) {
+          const result = await getCurrentDoctor();
+          doctorData = result?.data;
         }
-        // Fetch payment history after ensuring doctor data is available
+
+        if (!doctorData?._id) {
+          throw new Error('Doctor information not available');
+        }
+
         await fetchPaymentHistory();
       } catch (err) {
         setError('Failed to initialize data');
@@ -28,24 +34,22 @@ const DoctorPaymentPortal = () => {
     if (isAuthenticated) {
       initializeAndFetchPayments();
     }
-  }, [isAuthenticated, currentDoctor, getCurrentDoctor]);
+  }, [isAuthenticated]);
 
   const fetchPaymentHistory = async () => {
     try {
       setLoading(true);
-      
-      // Ensure we have currentDoctor before proceeding
-      if (!currentDoctor?._id) {
-        throw new Error('Doctor information not available');
-      }
-      
-      const doctorId = currentDoctor._id; 
-      const response = await fetch(`http://localhost:5000/payments/history?doctorId=${doctorId}`);
-      
+
+      const response = await fetch(`${API_BASE_URL}/payments/history`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('doctorAccessToken')}`
+        }
+      });
+
       if (!response.ok) {
         throw new Error('Failed to fetch payment history');
       }
-      
+
       const data = await response.json();
       setPaymentData(data.data);
     } catch (err) {
@@ -120,7 +124,7 @@ const DoctorPaymentPortal = () => {
         <div className="bg-red-50 border border-red-200 rounded-lg p-6 max-w-md">
           <h2 className="text-red-800 font-semibold mb-2">Error Loading Data</h2>
           <p className="text-red-600">{error}</p>
-          <button 
+          <button
             onClick={fetchPaymentHistory}
             className="mt-4 bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 transition-colors"
           >
@@ -290,11 +294,10 @@ const DoctorPaymentPortal = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                          payment.status === 'success' 
-                            ? 'bg-green-100 text-green-800' 
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${payment.status === 'success'
+                            ? 'bg-green-100 text-green-800'
                             : 'bg-red-100 text-red-800'
-                        }`}>
+                          }`}>
                           {payment.status === 'success' ? 'Success' : 'Failed'}
                         </span>
                       </td>

@@ -1,11 +1,11 @@
 // clientRoutes.js
 import { Router } from 'express';
-import { 
-  registerClient, 
-  loginClient, 
-  verifyEmail, 
-  logoutClient, 
-  updateClient, 
+import {
+  registerClient,
+  loginClient,
+  verifyEmail,
+  logoutClient,
+  updateClient,
   refreshAccessToken,
   verifyOtp,
   getCurrentClient,
@@ -26,6 +26,6 @@ router.post('/logout', isAuthenticated, logoutClient);
 router.post('/refresh-token', refreshAccessToken);
 router.get('/me', isAuthenticated, getCurrentClient);
 router.patch('/update', isAuthenticated, upload.single('avatar'), updateClient);
-router.route("/").get(getAllClients);          
-router.route("/:id").get(getClientById);  
+router.route("/").get(getAllClients);
+router.route("/:id").get(getClientById);
 export default router;

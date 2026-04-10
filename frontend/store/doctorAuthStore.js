@@ -14,12 +14,12 @@ const useDoctorAuthStore = create((set, get) => ({
   isSigningUp: false,
   isLoggingIn: false,
   isUpdatingProfile: false,
-  isCheckingAuth: true,
+  isCheckingAuth: false,
   isFetchingDoctors: false,
   isFetchingDoctor: false,
-  
+
   clearError: () => set({ error: null }),
-  
+
   register: async (formData) => {
     set({ isSigningUp: true, error: null });
     try {
@@ -28,113 +28,118 @@ const useDoctorAuthStore = create((set, get) => ({
         headers: { 'Content-Type': 'multipart/form-data' },
         withCredentials: true
       });
-      
+
       const doctorData = response.data.data;
-      
+
       // Store doctor ID in localStorage for UI persistence
       localStorage.setItem("doctorId", doctorData._id);
-      
-      set({ 
-        isSigningUp: false, 
+
+      set({
+        isSigningUp: false,
         doctor: doctorData,
         isAuthenticated: true
       });
-      
+
       toast.success("Account created successfully! Please verify your OTP.");
-      
-      
+
+
       return { success: true, doctorId: doctorData._id };
     } catch (error) {
       const errorMessage = error.response?.data?.message || "Registration failed";
-      set({ 
-        isSigningUp: false, 
+      set({
+        isSigningUp: false,
         error: errorMessage
       });
       toast.error(errorMessage);
       return { success: false, error: errorMessage };
     }
   },
-  
+
   verifyOtp: async (doctorId, otp) => {
     set({ isLoading: true, error: null });
     try {
       // Use withCredentials to ensure cookies are sent/received
       const response = await axiosInstance.post(
-        `${API_URL}/doctor/verify-otp`, 
+        `${API_URL}/doctor/verify-otp`,
         { doctorId, otp },
         { withCredentials: true }
       );
-      
+
       // After OTP verification, tokens are set as HTTP-only cookies by the backend
-      set({ 
+      set({
         isLoading: false,
-        isAuthenticated: true 
+        isAuthenticated: true
       });
-      
-      
+
+
       toast.success("OTP verified successfully!");
       return { success: true };
     } catch (error) {
       const errorMessage = error.response?.data?.message || "OTP verification failed";
-      set({ 
-        isLoading: false, 
+      set({
+        isLoading: false,
         error: errorMessage
       });
       toast.error(errorMessage);
       return { success: false, error: errorMessage };
     }
   },
-  
-verifyEmail: async (email, otp) => {
-  set({ isLoading: true, error: null });
-  try {
-    const response = await axiosInstance.post(
-      `${API_URL}/doctor/verify-email`,
-      { email, otp },
-      {
-        headers: { 'Content-Type': 'application/json' },
-        withCredentials: true,
-      }
-    );
 
-    set({ isLoading: false });
-    toast.success("Email verified successfully!");
-    return { success: true, message: response.data.data.message };
-  } catch (error) {
-    const errorMessage = error.response?.data?.message || "Email verification failed";
-    set({
-      isLoading: false,
-      error: errorMessage,
-    });
-    toast.error(errorMessage);
-    return { success: false, error: errorMessage };
-  }
-},
+  verifyEmail: async (email, otp) => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await axiosInstance.post(
+        `${API_URL}/doctor/verify-email`,
+        { email, otp },
+        {
+          headers: { 'Content-Type': 'application/json' },
+          withCredentials: true,
+        }
+      );
 
-  
- login: async (credentials) => {
+      set({ isLoading: false });
+      toast.success("Email verified successfully!");
+      return { success: true, message: response.data.data.message };
+    } catch (error) {
+      const errorMessage = error.response?.data?.message || "Email verification failed";
+      set({
+        isLoading: false,
+        error: errorMessage,
+      });
+      toast.error(errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  },
+
+
+  login: async (credentials) => {
     set({ isLoggingIn: true, error: null });
     try {
       // Always use withCredentials to ensure cookies are sent/received
       const response = await axiosInstance.post(
-        `${API_URL}/doctor/login`, 
-        credentials, 
+        `${API_URL}/doctor/login`,
+        credentials,
         { withCredentials: true }
       );
-  
+
       const { doctor, accessToken, refreshToken } = response.data.data;
-      
+
+      // Sanitization: Clear opponent tokens to prevent UI split-brain
+      localStorage.removeItem("clientId");
+      localStorage.removeItem("clientAccessToken");
+      localStorage.removeItem("clientRefreshToken");
+
       // Store doctor info and tokens in localStorage
       localStorage.setItem("doctorId", doctor._id);
       if (accessToken) localStorage.setItem("doctorAccessToken", accessToken);
       if (refreshToken) localStorage.setItem("doctorRefreshToken", refreshToken);
-  
+
       set({
         isLoggingIn: false,
         doctor: doctor,
         isAuthenticated: true,
       });
-  
+
       toast.success("Logged in successfully!");
       return { success: true };
     } catch (error) {
@@ -149,39 +154,39 @@ verifyEmail: async (email, otp) => {
     }
   },
 
-  
+
   logout: async () => {
     set({ isLoading: true, error: null });
     try {
       // Use withCredentials to ensure cookies are sent/received
       await axiosInstance.post(
-        `${API_URL}/doctor/logout`, 
-        {}, 
+        `${API_URL}/doctor/logout`,
+        {},
         { withCredentials: true }
       );
-      
+
       // Remove any doctor data from localStorage
       localStorage.removeItem("doctorId");
       localStorage.removeItem("doctorAccessToken");
       localStorage.removeItem("doctorRefreshToken");
-      
-      set({ 
-        isLoading: false, 
+
+      set({
+        isLoading: false,
         doctor: null,
-        isAuthenticated: false 
+        isAuthenticated: false
       });
       toast.success("Logged out successfully!");
       return { success: true };
     } catch (error) {
       const errorMessage = error.response?.data?.message || "Logout failed";
-      
+
       // Even if logout API fails, clear local state
       localStorage.removeItem("doctorId");
       localStorage.removeItem("doctorAccessToken");
       localStorage.removeItem("doctorRefreshToken");
-      
-      set({ 
-        isLoading: false, 
+
+      set({
+        isLoading: false,
         error: errorMessage,
         doctor: null,
         isAuthenticated: false
@@ -191,51 +196,51 @@ verifyEmail: async (email, otp) => {
       return { success: false };
     }
   },
-  
+
   checkAuth: async () => {
     set({ isCheckingAuth: true });
     try {
       // Use withCredentials to ensure cookies are sent/received
       const response = await axiosInstance.get(
-        `${API_URL}/doctor/me`, 
+        `${API_URL}/doctor/me`,
         { withCredentials: true }
       );
-      
-      set({ 
+
+      set({
         doctor: response.data.data,
         isAuthenticated: true
       });
-      
+
       return { success: true };
     } catch (error) {
       console.log("Error in checkAuth:", error);
-      
+
       // Clear any stored doctor data if authentication check fails
       localStorage.removeItem("doctorId");
       localStorage.removeItem("doctorAccessToken");
       localStorage.removeItem("doctorRefreshToken");
-      
-      set({ 
+
+      set({
         doctor: null,
         isAuthenticated: false
       });
-      
+
       return { success: false };
     } finally {
       set({ isCheckingAuth: false });
     }
   },
-  
+
   updateProfile: async (formData) => {
     set({ isUpdatingProfile: true, error: null });
     try {
       // Use withCredentials to ensure cookies are sent/received
       const response = await axiosInstance.patch(
-        `${API_URL}/doctor/update`, 
-        formData, 
+        `${API_URL}/doctor/update`,
+        formData,
         { withCredentials: true }
       );
-      
+
       set({ isUpdatingProfile: false, doctor: response.data.data });
       toast.success("Profile updated successfully!");
       return { success: true };
@@ -255,12 +260,12 @@ verifyEmail: async (email, otp) => {
         `${API_URL}/doctor/me`,
         { withCredentials: true }
       );
-      
+
       set({
         currentDoctor: response.data.data,
         isFetchingDoctor: false
       });
-      
+
       return { success: true, data: response.data.data };
     } catch (error) {
       const errorMessage = error.response?.data?.message || "Failed to fetch current doctor";
@@ -277,18 +282,18 @@ verifyEmail: async (email, otp) => {
     set({ isFetchingDoctors: true, error: null });
     try {
       const url = `${API_URL}/doctor`;
-      
+
       const response = await axiosInstance.get(url, {
         withCredentials: true
       });
-      
+
       set({
         doctors: response.data.data.doctors,
         isFetchingDoctors: false
       });
-      
-      return { 
-        success: true, 
+
+      return {
+        success: true,
         data: response.data.data.doctors,
         pagination: response.data.data.pagination
       };
@@ -311,9 +316,9 @@ verifyEmail: async (email, otp) => {
         `${API_URL}/doctor/doctors/${doctorId}`,
         { withCredentials: true }
       );
-      
+
       set({ isFetchingDoctor: false });
-      
+
       return { success: true, data: response.data.data };
     } catch (error) {
       const errorMessage = error.response?.data?.message || "Failed to fetch doctor";
@@ -339,7 +344,7 @@ verifyEmail: async (email, otp) => {
   getVerifiedDoctors: async (otherParams = {}) => {
     return await get().getAllDoctors({ verified: 'true', ...otherParams });
   },
-  
+
 }));
 
 export default useDoctorAuthStore;

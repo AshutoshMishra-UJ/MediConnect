@@ -19,6 +19,12 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+const cookieOptions = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax'
+};
+
 // ✅ Robust token generator with logs & checks
 const generateAccessRefreshTokens = async (clientId) => {
   console.log("📌 generateAccessRefreshTokens: clientId =", clientId);
@@ -95,8 +101,8 @@ const registerClient = asyncHandler(async (req, res) => {
 
   return res
     .status(201)
-    .cookie("accessToken", accessToken, { httpOnly: true, secure: true })
-    .cookie("refreshToken", refreshToken, { httpOnly: true, secure: true })
+    .cookie("accessToken", accessToken, cookieOptions)
+    .cookie("refreshToken", refreshToken, cookieOptions)
     .json(new ApiResponse(201, client, "Client registered successfully!"));
 });
 
@@ -121,8 +127,8 @@ const loginClient = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .cookie("accessToken", accessToken, { httpOnly: true, secure: true })
-    .cookie("refreshToken", refreshToken, { httpOnly: true, secure: true })
+    .cookie("accessToken", accessToken, cookieOptions)
+    .cookie("refreshToken", refreshToken, cookieOptions)
     .json(new ApiResponse(200, { client: loggedUserFromDB, accessToken, refreshToken }, "Client logged in successfully!"));
 });
 
@@ -147,8 +153,16 @@ const verifyEmail = asyncHandler(async (req, res) => {
 });
 
 const logoutClient = asyncHandler(async (req, res) => {
+  if (!req.client?._id) {
+    throw new ApiError(401, "Unauthorized: Client session required");
+  }
+
   await Client.findByIdAndUpdate(req.client._id, { refreshToken: null });
-  return res.status(200).clearCookie("accessToken").clearCookie("refreshToken").json(new ApiResponse(200, {}, "Client logged out successfully"));
+  return res
+    .status(200)
+    .clearCookie("accessToken", cookieOptions)
+    .clearCookie("refreshToken", cookieOptions)
+    .json(new ApiResponse(200, {}, "Client logged out successfully"));
 });
 
 const updateClient = asyncHandler(async (req, res) => {
@@ -179,8 +193,8 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
 
   const { accessToken, refreshToken } = await generateAccessRefreshTokens(client._id);
 
-  return res.status(200).cookie("accessToken", accessToken, { httpOnly: true, secure: true })
-    .cookie("refreshToken", refreshToken, { httpOnly: true, secure: true })
+  return res.status(200).cookie("accessToken", accessToken, cookieOptions)
+    .cookie("refreshToken", refreshToken, cookieOptions)
     .json(new ApiResponse(200, { accessToken, refreshToken }, "Token refreshed"));
 });
 
@@ -205,12 +219,16 @@ const verifyOtp = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .cookie("accessToken", accessToken, { httpOnly: true, secure: true })
-    .cookie("refreshToken", refreshToken, { httpOnly: true, secure: true })
+    .cookie("accessToken", accessToken, cookieOptions)
+    .cookie("refreshToken", refreshToken, cookieOptions)
     .json(new ApiResponse(200, { clientId: client._id, message: "OTP verified successfully!" }));
 });
 
 const getCurrentClient = asyncHandler(async (req, res) => {
+  if (!req.client?._id) {
+    throw new ApiError(401, "Unauthorized: Client session required");
+  }
+
   const client = await Client.findById(req.client._id).select("-password -refreshToken -otp -otpExpires -__v");
   return res.status(200).json(new ApiResponse(200, client, "Current Client Data"));
 });

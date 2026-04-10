@@ -5,10 +5,9 @@ import { ApiError } from "../utils/ApiError.js";
 
 export const isAuthenticated = async (req, res, next) => {
   try {
-    // Check for token in cookies first, then in Authorization header
-    const token = req.cookies?.accessToken || 
-                 (req.headers.authorization?.startsWith('Bearer ') ?
-                  req.headers.authorization.split(' ')[1] : null);
+    // Prioritize Authorization header to support concurrent multi-tab testing, fallback to cookies
+    const token = (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.split(' ')[1] : null) || 
+                  req.cookies?.accessToken;
     
     console.log("Authentication middleware - Token received:", token ? "Token present" : "No token");
     
