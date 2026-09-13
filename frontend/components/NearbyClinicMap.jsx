@@ -16,6 +16,7 @@ const MedicalFacilitiesFinder = () => {
   const [radius, setRadius] = useState(5);
   const [selectedFacility, setSelectedFacility] = useState(null);
   const [isRadiusOpen, setIsRadiusOpen] = useState(false);
+  const requestIdRef = useRef(0);
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markersRef = useRef([]);
@@ -125,9 +126,9 @@ const MedicalFacilitiesFinder = () => {
 
         // Fetch based on active tab
         if (activeTab === 'all') {
-          fetchAllMedicalFacilities(location.lat, location.lng);
+          fetchAllMedicalFacilities(location.lat, location.lng, radius);
         } else {
-          fetchSpecificFacilities(location.lat, location.lng, activeTab);
+          fetchSpecificFacilities(location.lat, location.lng, activeTab, radius);
         }
       },
       (error) => {
@@ -138,14 +139,23 @@ const MedicalFacilitiesFinder = () => {
   };
 
   // Fetch all medical facilities from API
-  const fetchAllMedicalFacilities = async (lat, lng) => {
+  const fetchAllMedicalFacilities = async (lat, lng, searchRadius = radius) => {
+    const requestId = ++requestIdRef.current;
     try {
-      const response = await fetch(`${API_BASE_URL}/clinics/nearby-medical?lat=${lat}&lng=${lng}&radius=${radius}`);
+      const response = await fetch(`${API_BASE_URL}/clinics/nearby-medical?lat=${lat}&lng=${lng}&radius=${searchRadius}`);
       const data = await response.json();
 
+      if (requestId !== requestIdRef.current) return;
+
       if (data.success) {
-        setMedicalFacilities(data.medical_facilities);
-        updateMapMarkers(data.medical_facilities, { lat, lng });
+        const facilities = {
+          hospitals: data.medical_facilities?.hospitals || [],
+          clinics: data.medical_facilities?.clinics || [],
+          dispensaries: data.medical_facilities?.dispensaries || []
+        };
+        setMedicalFacilities(facilities);
+        setSelectedFacility(null);
+        updateMapMarkers(facilities, { lat, lng });
       } else {
         setError('Failed to fetch medical facilities');
       }
@@ -157,7 +167,8 @@ const MedicalFacilitiesFinder = () => {
   };
 
   // Fetch specific type of facilities
-  const fetchSpecificFacilities = async (lat, lng, type) => {
+  const fetchSpecificFacilities = async (lat, lng, type, searchRadius = radius) => {
+    const requestId = ++requestIdRef.current;
     try {
       let endpoint = '';
       switch (type) {
@@ -174,8 +185,10 @@ const MedicalFacilitiesFinder = () => {
           endpoint = 'nearby-medical';
       }
 
-      const response = await fetch(`${API_BASE_URL}/clinics/${endpoint}?lat=${lat}&lng=${lng}&radius=${radius}`);
+      const response = await fetch(`${API_BASE_URL}/clinics/${endpoint}?lat=${lat}&lng=${lng}&radius=${searchRadius}`);
       const data = await response.json();
+
+      if (requestId !== requestIdRef.current) return;
 
       if (data.success) {
         // Reset facilities state
@@ -198,10 +211,17 @@ const MedicalFacilitiesFinder = () => {
 
         // Handle the case where all facilities are returned (nearby-medical endpoint)
         if (data.medical_facilities) {
-          setMedicalFacilities(data.medical_facilities);
-          updateMapMarkers(data.medical_facilities, { lat, lng });
+          const facilities = {
+            hospitals: data.medical_facilities.hospitals || [],
+            clinics: data.medical_facilities.clinics || [],
+            dispensaries: data.medical_facilities.dispensaries || []
+          };
+          setMedicalFacilities(facilities);
+          setSelectedFacility(null);
+          updateMapMarkers(facilities, { lat, lng });
         } else {
           setMedicalFacilities(resetFacilities);
+          setSelectedFacility(null);
           updateMapMarkers(resetFacilities, { lat, lng });
         }
       } else {
@@ -220,9 +240,9 @@ const MedicalFacilitiesFinder = () => {
     if (userLocation) {
       setLoading(true);
       if (newTab === 'all') {
-        fetchAllMedicalFacilities(userLocation.lat, userLocation.lng);
+        fetchAllMedicalFacilities(userLocation.lat, userLocation.lng, radius);
       } else {
-        fetchSpecificFacilities(userLocation.lat, userLocation.lng, newTab);
+        fetchSpecificFacilities(userLocation.lat, userLocation.lng, newTab, radius);
       }
     }
   };
@@ -236,9 +256,9 @@ const MedicalFacilitiesFinder = () => {
     if (userLocation) {
       setLoading(true);
       if (activeTab === 'all') {
-        fetchAllMedicalFacilities(userLocation.lat, userLocation.lng);
+        fetchAllMedicalFacilities(userLocation.lat, userLocation.lng, newRadius);
       } else {
-        fetchSpecificFacilities(userLocation.lat, userLocation.lng, activeTab);
+        fetchSpecificFacilities(userLocation.lat, userLocation.lng, activeTab, newRadius);
       }
     }
   };
